@@ -33,7 +33,7 @@ def train_regressor(model, iters=2000, batchsize=100,
         x, y = batch
         model.zero_grad()
         outs = model(x, normalize=False, resample=resample)
-        Enlml = -log_likelihood(y, *outs).sum()/M
+        Enlml = -log_likelihood(y, *outs).mean()
         loss = Enlml + model.regularization_loss()/N
         loss.backward()
         optimizer.step()

@@ -8,7 +8,13 @@ from torch.nn import Parameter
 from ..utils import to_complex
 
 
-class BDropout(nn.Dropout):
+class StochasticModule(torch.nn.Module):
+    def __init__(self, *args, **kwargs):
+        super(StochasticModule, self).__init__(*args, **kwargs)
+    
+
+
+class BDropout(StochasticModule):
     """
         Extends the base Dropout layer by adding a regularizer as derived by
         Gal and Ghahrahmani "Dropout as a Bayesian Approximation" (2015)
@@ -99,9 +105,10 @@ class BSequential(nn.modules.Sequential):
 
     def forward(self, input, resample=True, repeat_mask=False, **kwargs):
         for module in self._modules.values():
-            if isinstance(module, BDropout):
+            if isinstance(module, StochasticModule):
                 input = module(
-                    input, resample=resample, repeat_mask=repeat_mask)
+                    input, resample=resample, repeat_mask=repeat_mask,
+                    **kwargs)
             else:
                 input = module(input)
         return input
@@ -125,7 +132,7 @@ class BSequential(nn.modules.Sequential):
         return reg_loss
 
 
-class DiagGaussianDensity(torch.nn.Module):
+class DiagGaussianDensity(StochasticModule):
     '''
         Rearranges the incoming dimensions to correspond to the parameters
         of a Gaussian Density distribution.
@@ -134,7 +141,8 @@ class DiagGaussianDensity(torch.nn.Module):
         super(DiagGaussianDensity, self).__init__()
         self.output_dims = output_dims
 
-    def forward(self, x, scaling_params=None, *args, **kwargs):
+    def forward(self, x, scaling_params=None, return_samples=False,
+                *args, **kwargs):
         D = self.output_dims
         idx = torch.range(0, 2*D-1, dtype=torch.long, device=x.device)
         mean = x.index_select(-1, idx[:D])
@@ -151,10 +159,15 @@ class DiagGaussianDensity(torch.nn.Module):
             else:
                 warnings.warn(
                     "Expected scaling_params as tuple or list with 2 elements")
-        return mean, std
+        if return_samples:
+            # TODO resample these numbers only when told to do so
+            z = torch.randn_like(mean)
+            return mean + z*std
+        else:
+            return mean, std
 
 
-class MixtureDensity(torch.nn.Module):
+class MixtureDensity(StochasticModule):
     '''
      Mixture of Gaussians density Network model. The components have diagonal
      covariance.
@@ -164,7 +177,7 @@ class MixtureDensity(torch.nn.Module):
         self.n_components = n_components
         self.output_dims = output_dims
 
-    def forward(self, x, scaling_params=None, *args, **kwargs):
+    def forward(self, x, scaling_params=None, return_samples=False, *args, **kwargs):
         D = self.output_dims
         nD = D*self.n_components
 
@@ -190,7 +203,14 @@ class MixtureDensity(torch.nn.Module):
             else:
                 warnings.warn(
                     "Expected scaling_params as tuple or list with 2 elements")
-        return mean, std, pi
+        if return_samples:
+            # TODO resample these numbers only when told to do so
+            z1 = torch.rand_like(pi)
+            z2 = torch.randn_like(mean)
+            k = (torch.log(pi) + z1).argmax(-1)
+            return mean.index_select(-1, k) + z2*std.index_select(-1, k)
+        else:
+            return mean, std, pi
 
 
 class Regressor(torch.nn.Module):
