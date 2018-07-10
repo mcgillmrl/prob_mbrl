@@ -1,21 +1,38 @@
 import numpy as np
+import torch
+
+PI = {'default': torch.tensor(np.pi)}
+TWO_PI = {'default': 2*PI['default']}
+LOG_TWO_PI = {'default': torch.log(TWO_PI['default'])}
+HALF_LOG_TWO_PI = {'default': 0.5*LOG_TWO_PI['default']}
 
 
 def gaussian_log_likelihood(targets, pred_means, pred_stds=None):
     ''' Computes the log likelihood for gaussian distributed predictions.
         This assumes diagonal covariances
     '''
+    global HALF_LOG_TWO_PI
     deltas = pred_means - targets
     # note that if noise is a 1xD vector, broadcasting
     # rules apply
     if pred_stds is not None:
-        lml = -((deltas/pred_stds)**2).sum(-1)*0.5\
+        device_id = str(targets.device.type)+str(targets.device.index)
+        if device_id not in HALF_LOG_TWO_PI:
+            HALF_LOG_TWO_PI[device_id] = HALF_LOG_TWO_PI['default'].to(
+                targets.device)
+
+        lml = -((deltas*pred_stds.reciprocal())**2).sum(-1)*0.5\
               - pred_stds.log().sum(-1)\
-              - np.log(2*np.pi)*0.5
+              - HALF_LOG_TWO_PI[device_id]
     else:
         lml = -(deltas**2).sum(-1)*0.5
 
     return lml
+
+
+def gaussian_mixture_likelihood(targets, means, stds, pi):
+    # get deltas wrt each mixture component
+    deltas = means - targets
 
 
 def quadratic_loss(states, target, Q):
