@@ -32,7 +32,9 @@ def to_complex(x, dims=[]):
 
 
 def plot_rollout(x0, forward, pol, steps):
-    trajs = rollout(x0, forward, pol, steps, resample_particles=False)
+    trajs = rollout(
+        x0, forward, pol, steps, resample_model=False,
+        resample_policy=False, resample_particles=False)
     states, actions, rewards = (
         torch.stack(x).transpose(0,1).cpu().detach().numpy() for x in zip(*trajs))
     names = ['Rolled out States', 'Predicted Actions', 'Predicted Rewards']
