@@ -126,7 +126,7 @@ class BSequential(nn.modules.Sequential):
                                           nn.modules.conv._ConvNd):
                         reg_loss += module.weights_regularizer(
                             next_module.weight)
-                        if hasattr(module, 'bias') and module.bias is not None:
+                        if hasattr(next_module, 'bias') and next_module.bias is not None:
                             reg_loss += module.biases_regularizer(
                                 next_module.bias)
                         break
