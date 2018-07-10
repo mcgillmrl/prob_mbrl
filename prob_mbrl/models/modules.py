@@ -207,7 +207,7 @@ class MixtureDensity(StochasticModule):
         if return_samples:
             # TODO resample these numbers only when told to do so
             z1 = torch.rand_like(pi)
-            z2 = torch.randn_like(mean)
+            z2 = torch.randn(*mean.shape[:-1])
             k = (torch.log(pi) + z1).argmax(-1)
             return mean.index_select(-1, k) + z2*std.index_select(-1, k)
         else:
