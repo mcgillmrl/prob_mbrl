@@ -18,8 +18,8 @@ def custom_pbar(iterable, total):
 def train_regressor(model, iters=2000, batchsize=100,
                     resample=False, optimizer=None,
                     log_likelihood=gaussian_log_likelihood):
-    X = (model.X - model.mx)/model.Sx
-    Y = (model.Y - model.my)/model.Sy
+    X = (model.X - model.mx)*model.iSx
+    Y = (model.Y - model.my)*model.iSy
     N = X.shape[0]
     M = batchsize
 
