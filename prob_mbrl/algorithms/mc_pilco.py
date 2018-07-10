@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 import tqdm
 
@@ -56,13 +57,13 @@ def rollout(states, forward, policy, steps,
 
 def mc_pilco(init_states, forward, dynamics, policy, steps, opt=None, exp=None,
              opt_iters=1000, pegasus=True, mm_states=False, mm_rewards=False,
-             maximize=True, clip_grad=1.0, angle_dims=[]):
+             maximize=True, clip_grad=1.0, mpc=False, max_steps=None):
     msg = "Accumulated rewards: %f" if maximize else "Accumulated costs: %f"
     if opt is None:
         params = filter(lambda p: p.requires_grad, policy.parameters())
         opt = torch.optim.Adam(params)
     pbar = tqdm.tqdm(range(opt_iters), total=opt_iters)
-
+    max_steps = steps if max_steps is None else max_steps
     D = init_states.shape[-1]
     shape = init_states.shape
     z = {}
@@ -77,35 +78,63 @@ def mc_pilco(init_states, forward, dynamics, policy, steps, opt=None, exp=None,
         dynamics.model.resample()
         policy.model.resample()
 
-    for i in pbar:
-        # setup dynamics and policy
-        policy.zero_grad()
-        dynamics.zero_grad()
-        if not pegasus:
-            dynamics.model.resample()
-            policy.model.resample()
+    init_timestep = 0
+    x0 = init_states
+    sample_idx = torch.tensor(1).random_(0, x0.shape[0])
+    policy.zero_grad()
+    dynamics.zero_grad()
 
-        # sample inital states
-        if exp is not None:
-            N_particles = init_states.shape[0]
-            init_states = torch.tensor(
-                exp.sample_initial_state(N_particles)).to(dynamics.X.device).float()
-            init_states += 1e-2*init_states.std(0)*torch.randn_like(
-                init_states)
+    for i in pbar:
+        if mpc:
+            if init_timestep != 0:
+                # start from a sample from next simulated timestep
+                x0 = states[1].detach()
+                sample_idx.random_(x0.shape[0])
+                x0 = x0[sample_idx]*torch.ones_like(x0)
+                # add noise
+                x0 += init_states.std(0)*torch.randn_like(
+                    x0)
+
+            init_timestep = (init_timestep + 1) % steps
 
         # rollout policy
-        trajs = rollout(init_states, forward, policy, steps,
+        H = max_steps if mpc and init_timestep != 1 else steps
+        trajs = rollout(x0, forward, policy, H,
                         mm_states=mm_states, mm_rewards=mm_rewards, **z)
         states, actions, rewards = (torch.stack(x) for x in zip(*trajs))
 
         # calculate loss. average over batch index, sum over time step index
         loss = -rewards.mean(1).mean(0) if maximize else rewards.mean(1).mean(0)
-
+        if init_timestep == mpc*1:
+            loss0 = loss
         # compute gradients
         loss.backward()
-        if clip_grad is not None:
-            torch.nn.utils.clip_grad_norm_(policy.parameters(), clip_grad)
 
-        # update parameters
-        opt.step()
-        pbar.set_description(msg % (loss))
+        if init_timestep == 0:
+            # clip gradients
+            if clip_grad is not None:
+                torch.nn.utils.clip_grad_norm_(policy.parameters(), clip_grad)
+            
+            # update parameters
+            opt.step()
+            pbar.set_description(msg % (loss0))
+        
+            # zero gradients
+            policy.zero_grad()
+            dynamics.zero_grad()
+
+            # setup dynamics and policy
+            if not pegasus:
+                dynamics.model.resample()
+                policy.model.resample()
+
+            # sample initial states
+            if exp is not None:
+                N_particles = init_states.shape[0]
+                x0 = torch.tensor(
+                    exp.sample_states(N_particles)
+                    ).to(dynamics.X.device).float()
+                x0 += 1e-2*init_states.std(0)*torch.randn_like(
+                    x0)
+            else:
+                x0 = init_states
