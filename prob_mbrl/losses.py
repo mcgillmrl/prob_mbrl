@@ -39,7 +39,7 @@ def gaussian_mixture_log_likelihood(targets, means, stds, pi):
     deltas = means - targets[:, None, :]
 
     # weighted probabilities
-    norm = ((TWO_PI[device_id]*stds.prod(-1))**0.5).reciprocal()
+    norm = ((TWO_PI[device_id]*(stds**2).prod(-1))**0.5).reciprocal()
     probs = pi*(norm*(-0.5*((deltas*stds.reciprocal())**2).sum(-1)).exp())
 
     # total probability
