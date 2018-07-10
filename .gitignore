@@ -1,0 +1,10 @@
+*.pyc
+*.swp
+*.swo
+*.swn
+*.swm
+*.swl
+~*
+.vscode*
+*.egg-info*
+*.ipynb_checkpoints*
