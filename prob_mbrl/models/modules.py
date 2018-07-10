@@ -167,15 +167,17 @@ class MixtureDensity(torch.nn.Module):
     def forward(self, x, scaling_params=None, *args, **kwargs):
         D = self.output_dims
         nD = D*self.n_components
-        print 2*nD - 1, D
-        idx = torch.range(0, 2*nD-1, dtype=torch.long, device=x.device)
+
+        idx = torch.range(
+            0, 2*nD+self.n_components-1, dtype=torch.long, device=x.device)
         mean = x.index_select(-1, idx[:nD]).view(-1, self.n_components, D)
         std = x.index_select(
             -1, idx[nD:2*nD]).view(-1, self.n_components, D).sigmoid()
         if self.n_components > 1:
             logit_pi = x.index_select(-1, idx[2*nD:])
+            pi = torch.nn.functional.softmax(logit_pi, -1)
         else:
-            logit_pi = 1
+            pi = 1
 
         # scale and center outputs
         if scaling_params is not None and len(scaling_params) > 0:
@@ -188,7 +190,7 @@ class MixtureDensity(torch.nn.Module):
             else:
                 warnings.warn(
                     "Expected scaling_params as tuple or list with 2 elements")
-        return mean, std, logit_pi
+        return mean, std, pi
 
 
 class Regressor(torch.nn.Module):
