@@ -30,9 +30,21 @@ def gaussian_log_likelihood(targets, pred_means, pred_stds=None):
     return lml
 
 
-def gaussian_mixture_likelihood(targets, means, stds, pi):
+def gaussian_mixture_log_likelihood(targets, means, stds, pi):
+    global TWO_PI
+    device_id = str(targets.device.type)+str(targets.device.index)
+    if device_id not in TWO_PI:
+        TWO_PI[device_id] = TWO_PI['default'].to(targets.device)
     # get deltas wrt each mixture component
-    deltas = means - targets
+    deltas = means - targets[:, None, :]
+
+    # weighted probabilities
+    norm = ((TWO_PI[device_id]*stds.prod(-1))**0.5).reciprocal()
+    probs = pi*(norm*(-0.5*((deltas*stds.reciprocal())**2).sum(-1)).exp())
+
+    # total probability
+    probs = probs.sum(-1)
+    return probs.log()
 
 
 def quadratic_loss(states, target, Q):
