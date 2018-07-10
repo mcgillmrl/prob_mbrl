@@ -129,6 +129,7 @@ class BSequential(nn.modules.Sequential):
                         if hasattr(module, 'bias') and module.bias is not None:
                             reg_loss += module.biases_regularizer(
                                 next_module.bias)
+                        break
         return reg_loss
 
 
