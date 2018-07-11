@@ -44,7 +44,7 @@ def rollout(states, forward, policy, steps,
             m = rewards.mean(0)
             deltas = rewards - m
             S = deltas.t().mm(deltas)/M + 1e-6*torch.eye(m.shape[-1])
-            rewards = m + z3.mm(S.potrf())
+            rewards = m + z1.mm(S.potrf())
 
         trajectory.append((states, actions, rewards))
         states = next_states
