@@ -142,7 +142,7 @@ class DiagGaussianDensity(StochasticModule):
         self.output_dims = output_dims
 
     def forward(self, x, scaling_params=None, return_samples=False,
-                **kwargs):
+                measurement_noise=True, **kwargs):
         D = self.output_dims
         idx = torch.range(0, 2*D-1, dtype=torch.long, device=x.device)
         mean = x.index_select(-1, idx[:D])
@@ -159,9 +159,12 @@ class DiagGaussianDensity(StochasticModule):
                 warnings.warn(
                     "Expected scaling_params as tuple or list with 2 elements")
         if return_samples:
-            # TODO resample these numbers only when told to do so
-            z = torch.randn_like(mean)
-            return mean + z*std
+            samples = mean
+            if measurement_noise:
+                # TODO resample these numbers only when told to do so
+                z = torch.randn_like(mean)
+                samples = samples + z*std
+            return samples
         else:
             return mean, std
 
@@ -177,7 +180,7 @@ class MixtureDensity(StochasticModule):
         self.output_dims = output_dims
 
     def forward(self, x, scaling_params=None, return_samples=False,
-                **kwargs):
+                measurement_noise=True, **kwargs):
         D = self.output_dims
         nD = D*self.n_components
         # the output shape is [batch_size, output_dimensions, n_components]
@@ -202,11 +205,12 @@ class MixtureDensity(StochasticModule):
         if return_samples:
             # TODO resample these numbers only when told to do so
             z1 = torch.rand_like(pi)
-            z2 = torch.randn(*mean.shape[:-1])
             k = (torch.log(pi) + z1).argmax(-1)
             k = k[:, None, None].repeat(1, mean.shape[-2], 1)
             samples = mean.gather(-1, k).squeeze()
-            samples = samples + z2*std.gather(-1, k).squeeze()
+            if measurement_noise:
+                z2 = torch.randn(*mean.shape[:-1])
+                samples = samples + z2*std.gather(-1, k).squeeze()
             return samples
         else:
             return mean, std, pi
