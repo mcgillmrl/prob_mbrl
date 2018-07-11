@@ -233,12 +233,12 @@ class Regressor(torch.nn.Module):
     def set_dataset(self, X, Y):
         self.X.data = to_complex(X, self.angle_dims)
         self.Y.data = Y
-        self.mx.data = self.X.mean(0)
-        self.Sx.data = self.X.std(0)
-        self.iSx.data = self.X.std(0).reciprocal()
-        self.my.data = self.Y.mean(0)
-        self.Sy.data = self.Y.std(0)
-        self.iSy.data = self.Y.std(0).reciprocal()
+        self.mx.data = self.X.mean(0, keepdim=True)
+        self.Sx.data = self.X.std(0, keepdim=True)
+        self.iSx.data = self.X.std(0, keepdim=True).reciprocal()
+        self.my.data = self.Y.mean(0, keepdim=True)
+        self.Sy.data = self.Y.std(0, keepdim=True)
+        self.iSy.data = self.Y.std(0, keepdim=True).reciprocal()
 
     def regularization_loss(self):
         return self.model.regularization_loss()
@@ -286,8 +286,8 @@ class Policy(torch.nn.Module):
 
 
 class DynamicsModel(Regressor):
-    def __init__(self, model, reward_func=None, angle_dims=[]):
-        super(DynamicsModel, self).__init__(model, angle_dims)
+    def __init__(self, model, reward_func=None, **kwargs):
+        super(DynamicsModel, self).__init__(model, **kwargs)
         self.maxR = torch.nn.Parameter(
             torch.empty([1, 1]), requires_grad=False)
         self.minR = torch.nn.Parameter(
@@ -310,7 +310,7 @@ class DynamicsModel(Regressor):
         # forward pass on model
         output_samples = super(DynamicsModel, self).forward(
             inputs, return_samples=True, **kwargs)
-            
+
         if callable(self.reward_func):
             # if we have a known reward function
             states = output_samples
