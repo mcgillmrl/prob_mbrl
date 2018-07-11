@@ -140,9 +140,11 @@ class DiagGaussianDensity(StochasticModule):
     def __init__(self, output_dims):
         super(DiagGaussianDensity, self).__init__()
         self.output_dims = output_dims
+        self.z = Parameter(
+            torch.ones([1, 1]), requires_grad=False)
 
     def forward(self, x, scaling_params=None, return_samples=False,
-                measurement_noise=True, **kwargs):
+                output_noise=True, resample_output_noise=True, **kwargs):
         D = self.output_dims
         idx = torch.range(0, 2*D-1, dtype=torch.long, device=x.device)
         mean = x.index_select(-1, idx[:D])
@@ -160,9 +162,10 @@ class DiagGaussianDensity(StochasticModule):
                     "Expected scaling_params as tuple or list with 2 elements")
         if return_samples:
             samples = mean
-            if measurement_noise:
-                # TODO resample these numbers only when told to do so
-                z = torch.randn_like(mean)
+            if output_noise:
+                if (mean.shape != self.z.shape) or resample_output_noise:
+                    self.z.data = torch.randn_like(mean)
+                z = self.z
                 samples = samples + z*std
             return samples
         else:
@@ -178,9 +181,13 @@ class MixtureDensity(StochasticModule):
         super(MixtureDensity, self).__init__(**kwargs)
         self.n_components = n_components
         self.output_dims = output_dims
+        self.z_normal = Parameter(
+            torch.ones([1, 1]), requires_grad=False)
+        self.z_pi = Parameter(
+            torch.ones([1, 1]), requires_grad=False)
 
     def forward(self, x, scaling_params=None, return_samples=False,
-                measurement_noise=True, **kwargs):
+                output_noise=True, resample_output_noise=True, **kwargs):
         D = self.output_dims
         nD = D*self.n_components
         # the output shape is [batch_size, output_dimensions, n_components]
@@ -203,13 +210,16 @@ class MixtureDensity(StochasticModule):
                 warnings.warn(
                     "Expected scaling_params as tuple or list with 2 elements")
         if return_samples:
-            # TODO resample these numbers only when told to do so
-            z1 = torch.rand_like(pi)
+            if (pi.shape != self.z_pi.shape) or resample_output_noise:
+                self.z_pi.data = torch.rand_like(pi)
+            z1 = self.z_pi
             k = (torch.log(pi) + z1).argmax(-1)
             k = k[:, None, None].repeat(1, mean.shape[-2], 1)
             samples = mean.gather(-1, k).squeeze()
-            if measurement_noise:
-                z2 = torch.randn(*mean.shape[:-1])
+            if output_noise:
+                if (mean[:-1].shape != self.z_pi.shape) or resample_output_noise:
+                    self.z_normal.data = torch.randn(*mean.shape[:-1])
+                z2 = self.z_normal
                 samples = samples + z2*std.gather(-1, k).squeeze()
             return samples
         else:
@@ -223,14 +233,14 @@ class Regressor(torch.nn.Module):
         self.output_density = output_density
         self.angle_dims = torch.nn.Parameter(
             torch.tensor(angle_dims).long(), requires_grad=False)
-        self.X = torch.nn.Parameter(torch.empty([1, 1]), requires_grad=False)
-        self.Y = torch.nn.Parameter(torch.empty([1, 1]), requires_grad=False)
-        self.mx = torch.nn.Parameter(torch.empty([1, 1]), requires_grad=False)
-        self.Sx = torch.nn.Parameter(torch.empty([1, 1]), requires_grad=False)
-        self.iSx = torch.nn.Parameter(torch.empty([1, 1]), requires_grad=False)
-        self.my = torch.nn.Parameter(torch.empty([1, 1]), requires_grad=False)
-        self.Sy = torch.nn.Parameter(torch.empty([1, 1]), requires_grad=False)
-        self.iSy = torch.nn.Parameter(torch.empty([1, 1]), requires_grad=False)
+        self.X = torch.nn.Parameter(torch.ones([1, 1]), requires_grad=False)
+        self.Y = torch.nn.Parameter(torch.ones([1, 1]), requires_grad=False)
+        self.mx = torch.nn.Parameter(torch.ones([1, 1]), requires_grad=False)
+        self.Sx = torch.nn.Parameter(torch.ones([1, 1]), requires_grad=False)
+        self.iSx = torch.nn.Parameter(torch.ones([1, 1]), requires_grad=False)
+        self.my = torch.nn.Parameter(torch.ones([1, 1]), requires_grad=False)
+        self.Sy = torch.nn.Parameter(torch.ones([1, 1]), requires_grad=False)
+        self.iSy = torch.nn.Parameter(torch.ones([1, 1]), requires_grad=False)
 
     def set_dataset(self, X, Y):
         self.X.data = to_complex(X, self.angle_dims)
@@ -292,9 +302,9 @@ class DynamicsModel(Regressor):
     def __init__(self, model, reward_func=None, **kwargs):
         super(DynamicsModel, self).__init__(model, **kwargs)
         self.maxR = torch.nn.Parameter(
-            torch.empty([1, 1]), requires_grad=False)
+            torch.ones([1, 1]), requires_grad=False)
         self.minR = torch.nn.Parameter(
-            torch.empty([1, 1]), requires_grad=False)
+            torch.ones([1, 1]), requires_grad=False)
         self.reward_func = reward_func
 
     def set_dataset(self, X, Y):

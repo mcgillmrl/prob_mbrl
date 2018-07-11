@@ -13,11 +13,9 @@ def get_z_rnd(z, i, shape, device=None):
 
 
 def rollout(states, forward, policy, steps,
-            resample_model=False,
-            resample_policy=False,
+            resample_model=False, resample_policy=False,
             mm_states=False, mm_rewards=False,
-            z_mm=None, z_states=None, z_rewards=None,
-            **kwargs):
+            z_mm=None, **kwargs):
     '''
         Obtains trajectory distribution (s_0, a_0, r_0, s_1, a_1, r_1,...)
         by rolling out the policy on the model, from the given set of states
@@ -27,16 +25,14 @@ def rollout(states, forward, policy, steps,
     for i in range(steps):
         # sample (or query) random numbers
         z1 = get_z_rnd(z_mm, i, states.shape, states.device)
-        z2 = get_z_rnd(z_states, i, states.shape, states.device)
-        z3 = get_z_rnd(z_rewards, i, [states.shape[0], 1], states.device)
 
         # evaluate policy
         actions = policy(states, resample=resample_policy)
 
         # propagate state particles (and obtain rewards)
         next_states, rewards = forward(
-            states, actions, measurement_noise=True,
-            resample=resample_model, z_states=z2, z_rewards=z3)
+            states, actions, output_noise=True,
+            resample=resample_model, resample_output_noise=resample_model)
 
         if mm_states:
             m = next_states.mean(0)
@@ -49,7 +45,7 @@ def rollout(states, forward, policy, steps,
             deltas = rewards - m
             S = deltas.t().mm(deltas)/M + 1e-6*torch.eye(m.shape[-1])
             rewards = m + z3.mm(S.potrf())
-            
+
         trajectory.append((states, actions, rewards))
         states = next_states
     return trajectory
@@ -66,20 +62,17 @@ def mc_pilco(init_states, forward, dynamics, policy, steps, opt=None, exp=None,
     max_steps = steps if max_steps is None else max_steps
     D = init_states.shape[-1]
     shape = init_states.shape
-    z = {}
+    z_mm = None
     if pegasus:
         # sample initial random numbers
-        z['z_mm'] = torch.randn(
+        z_mm = torch.randn(
             steps+shape[0], *shape[1:]).reshape(-1, D).to(dynamics.X.device).float()
-        z['z_states'] = torch.randn(
-            steps+shape[0], *shape[1:]).reshape(-1, D).to(dynamics.X.device).float()
-        z['z_rewards'] = torch.randn(
-            steps+shape[0], 1).to(dynamics.X.device).float()
         dynamics.model.resample()
         policy.model.resample()
 
     init_timestep = 0
     x0 = init_states
+    states = [init_states]*2
     sample_idx = torch.tensor(1).random_(0, x0.shape[0])
     policy.zero_grad()
     dynamics.zero_grad()
@@ -100,7 +93,7 @@ def mc_pilco(init_states, forward, dynamics, policy, steps, opt=None, exp=None,
         # rollout policy
         H = max_steps if mpc and init_timestep != 1 else steps
         trajs = rollout(x0, forward, policy, H,
-                        mm_states=mm_states, mm_rewards=mm_rewards, **z)
+                        mm_states=mm_states, mm_rewards=mm_rewards, z_mm=z_mm)
         states, actions, rewards = (torch.stack(x) for x in zip(*trajs))
 
         # calculate loss. average over batch index, sum over time step index
@@ -114,11 +107,11 @@ def mc_pilco(init_states, forward, dynamics, policy, steps, opt=None, exp=None,
             # clip gradients
             if clip_grad is not None:
                 torch.nn.utils.clip_grad_norm_(policy.parameters(), clip_grad)
-            
+
             # update parameters
             opt.step()
             pbar.set_description(msg % (loss0))
-        
+
             # zero gradients
             policy.zero_grad()
             dynamics.zero_grad()
