@@ -160,6 +160,11 @@ class Regressor(torch.nn.Module):
     def regularization_loss(self):
         return self.model.regularization_loss()
 
+    def resample(self, *args, **kwargs):
+        self.model.resample(*args, **kwargs)
+        if self.output_density is not None:
+            self.output_density.resample(*args, **kwargs)
+
     def forward(self, x, normalize=True, **kwargs):
         ''' This assumes that the newtork outputs the parameters for
             an isotropic Gaussian predictive distribution, for each
@@ -188,6 +193,9 @@ class Policy(torch.nn.Module):
             torch.tensor(out_scale), requires_grad=False)
         self.bias = torch.nn.Parameter(
             torch.tensor(out_bias), requires_grad=False)
+
+    def resample(self, *args, **kwargs):
+        self.model.resample(*args, **kwargs)
 
     def forward(self, x, **kwargs):
         return_numpy = isinstance(x, np.ndarray)

@@ -17,6 +17,9 @@ class DiagGaussianDensity(StochasticModule):
         self.z = Parameter(
             torch.ones([1, 1]), requires_grad=False)
 
+    def resample(self, *args, **kwargs):
+        self.z.data = torch.randn(self.z.shape)
+
     def forward(self, x, scaling_params=None, return_samples=False,
                 output_noise=True, resample_output_noise=True, **kwargs):
         D = self.output_dims
@@ -59,6 +62,10 @@ class MixtureDensity(StochasticModule):
             torch.ones([1, 1]), requires_grad=False)
         self.z_pi = Parameter(
             torch.ones([1, 1]), requires_grad=False)
+
+    def resample(self, *args, **kwargs):
+        self.z_pi.data = torch.rand(self.z_pi.shape)
+        self.z_normal.data = torch.randn(self.z_normal.shape)
 
     def forward(self, x, scaling_params=None, return_samples=False,
                 output_noise=True, resample_output_noise=True, **kwargs):
