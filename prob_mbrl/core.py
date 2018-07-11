@@ -25,7 +25,7 @@ def train_regressor(model, iters=2000, batchsize=100,
 
     if optimizer is None:
         params = filter(lambda p: p.requires_grad, model.parameters())
-        optimizer = torch.optim.Adam(params, 1e-3)
+        optimizer = torch.optim.Adam(params, 1e-4, amsgrad=True)
 
     pbar = tqdm.tqdm(enumerate(iterate_minibatches(X, Y, M)), total=iters)
 
