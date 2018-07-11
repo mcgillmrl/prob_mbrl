@@ -169,7 +169,7 @@ class DiagGaussianDensity(StochasticModule):
 
 class MixtureDensity(StochasticModule):
     '''
-     Mixture of Gaussians density Network model. The components have diagonal
+     Mixture of Gaussian Densities Network model. The components have diagonal
      covariance.
     '''
     def __init__(self, output_dims, n_components, **kwargs):
