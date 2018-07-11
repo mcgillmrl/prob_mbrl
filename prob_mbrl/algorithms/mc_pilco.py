@@ -1,4 +1,3 @@
-import numpy as np
 import torch
 import tqdm
 
@@ -65,10 +64,10 @@ def mc_pilco(init_states, forward, dynamics, policy, steps, opt=None, exp=None,
     z_mm = None
     if pegasus:
         # sample initial random numbers
-        z_mm = torch.randn(
-            steps+shape[0], *shape[1:]).reshape(-1, D).to(dynamics.X.device).float()
-        dynamics.model.resample()
-        policy.model.resample()
+        z_mm = torch.randn(steps+shape[0], *shape[1:])
+        z_mm = z_mm.reshape(-1, D).to(dynamics.X.device).float()
+        dynamics.resample()
+        policy.resample()
 
     init_timestep = 0
     x0 = init_states
@@ -97,7 +96,11 @@ def mc_pilco(init_states, forward, dynamics, policy, steps, opt=None, exp=None,
         states, actions, rewards = (torch.stack(x) for x in zip(*trajs))
 
         # calculate loss. average over batch index, sum over time step index
-        loss = -rewards.mean(1).mean(0) if maximize else rewards.mean(1).mean(0)
+        if maximize:
+            loss = -rewards.mean(1).mean(0)
+        else:
+            loss = rewards.mean(1).mean(0)
+
         if init_timestep == mpc*1:
             loss0 = loss
         # compute gradients
@@ -118,8 +121,8 @@ def mc_pilco(init_states, forward, dynamics, policy, steps, opt=None, exp=None,
 
             # setup dynamics and policy
             if not pegasus:
-                dynamics.model.resample()
-                policy.model.resample()
+                dynamics.resample()
+                policy.resample()
 
             # sample initial states
             if exp is not None:
