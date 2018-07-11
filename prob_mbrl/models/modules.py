@@ -117,7 +117,7 @@ class BSequential(nn.modules.Sequential):
         reg_loss = 0
         for i, module in enumerate(modules):
             if hasattr(module, 'weights_regularizer'):
-                # find first subsequent module, from current,
+                # find first subsequent module, from current,output_samples
                 # with a weight attribute
                 for next_module in modules[i:]:
                     if isinstance(next_module, nn.Linear)\
@@ -153,9 +153,8 @@ class DiagGaussianDensity(StochasticModule):
             if len(scaling_params) == 2:
                 my = scaling_params[0]
                 Sy = scaling_params[1]
-                mean *= Sy
-                std *= Sy
-                mean += my
+                std = std*Sy
+                mean = mean*Sy + my
             else:
                 warnings.warn(
                     "Expected scaling_params as tuple or list with 2 elements")
@@ -181,26 +180,22 @@ class MixtureDensity(StochasticModule):
                 **kwargs):
         D = self.output_dims
         nD = D*self.n_components
-
+        # the output shape is [batch_size, output_dimensions, n_components]
         idx = torch.range(
             0, 2*nD+self.n_components-1, dtype=torch.long, device=x.device)
-        mean = x.index_select(-1, idx[:nD]).view(-1, self.n_components, D)
+        mean = x.index_select(-1, idx[:nD]).view(-1, D, self.n_components)
         std = x.index_select(
-            -1, idx[nD:2*nD]).view(-1, self.n_components, D).sigmoid()
-        if self.n_components > 1:
-            logit_pi = x.index_select(-1, idx[2*nD:])
-            pi = torch.nn.functional.softmax(logit_pi, -1)
-        else:
-            pi = 1
+            -1, idx[nD:2*nD]).view(-1, D, self.n_components).sigmoid()
+        logit_pi = x.index_select(-1, idx[2*nD:])
+        pi = torch.nn.functional.softmax(logit_pi, -1)
 
         # scale and center outputs
         if scaling_params is not None and len(scaling_params) > 0:
             if len(scaling_params) == 2:
-                my = scaling_params[0]
-                Sy = scaling_params[1]
-                mean *= Sy
-                std *= Sy
-                mean += my
+                my = scaling_params[0].unsqueeze(-1)
+                Sy = scaling_params[1].unsqueeze(-1)
+                std = std*Sy
+                mean = mean*Sy + my
             else:
                 warnings.warn(
                     "Expected scaling_params as tuple or list with 2 elements")
@@ -209,7 +204,10 @@ class MixtureDensity(StochasticModule):
             z1 = torch.rand_like(pi)
             z2 = torch.randn(*mean.shape[:-1])
             k = (torch.log(pi) + z1).argmax(-1)
-            return mean.index_select(-1, k) + z2*std.index_select(-1, k)
+            k = k[:, None, None].repeat(1, mean.shape[-2], 1)
+            samples = mean.gather(-1, k).squeeze()
+            samples = samples + z2*std.gather(-1, k).squeeze()
+            return samples
         else:
             return mean, std, pi
 
@@ -255,7 +253,8 @@ class Regressor(torch.nn.Module):
         outs = self.model(x, **kwargs)
         if callable(self.output_density):
             scaling_params = (self.my, self.Sy) if normalize else None
-            outs = self.output_density(outs, scaling_params=scaling_params)
+            outs = self.output_density(
+                outs, scaling_params=scaling_params, **kwargs)
 
         return outs
 
@@ -308,31 +307,27 @@ class DynamicsModel(Regressor):
             inputs = torch.cat([prev_states, actions], -1)
 
         # forward pass on model
-        output_samples = super(DynamicsModel, self).forward(
-            inputs, return_samples=True, **kwargs)
-
+        outs = super(DynamicsModel, self).forward(
+            inputs, **kwargs)
+        if isinstance(outs, tuple):
+            return outs
         if callable(self.reward_func):
             # if we have a known reward function
-            states = output_samples
+            states = outs
             if not inputs_as_tuple:
-                D = output_samples.shape[-1]
+                D = outs.shape[-1]
                 prev_states = inputs.index_select(
                     -1, torch.range(0, D-1, device=inputs.device).long())
             rewards = self.reward_func(prev_states)
-            if separate_outputs:
-                return states, rewards
-            else:
-                return states
         else:
-            D = output_samples.shape[-1] - 1
+            D = outs.shape[-1] - 1
             # assume rewards come from the last dimension of the output
-            states = output_samples.index_select(
+            states = outs.index_select(
                 -1, torch.range(0, D-1, device=inputs.device).long())
-            rewards = output_samples.index_select(
+            rewards = outs.index_select(
                 -1, torch.tensor(D, device=inputs.device))
             # constrain rewards
             # rewards = (self.maxR - self.minR)*rewards.sigmoid() + self.minR
-            if separate_outputs:
-                return states, rewards
-
-            return torch.cat([states, rewards], -1)
+        if separate_outputs:
+            return states, rewards
+        return torch.cat([states, rewards], -1)

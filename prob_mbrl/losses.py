@@ -31,16 +31,23 @@ def gaussian_log_likelihood(targets, pred_means, pred_stds=None):
 
 
 def gaussian_mixture_log_likelihood(targets, means, stds, pi):
+    '''
+        Returns the log probability of targets under the mixture
+        distribution parametrized by means, stds and pi.
+        This assumes a mixture of gaussians we diagonal covariance.
+        The expected shape for mean and std is
+            [batch_size, output_dimensions, n_components]
+    '''
     global TWO_PI
     device_id = str(targets.device.type)+str(targets.device.index)
     if device_id not in TWO_PI:
         TWO_PI[device_id] = TWO_PI['default'].to(targets.device)
     # get deltas wrt each mixture component
-    deltas = means - targets[:, None, :]
+    deltas = means - targets[:, :, None]
 
     # weighted probabilities
-    norm = ((TWO_PI[device_id]*(stds**2).prod(-1))**0.5).reciprocal()
-    probs = pi*(norm*(-0.5*((deltas*stds.reciprocal())**2).sum(-1)).exp())
+    norm = ((TWO_PI[device_id]*(stds**2).prod(-2))**0.5).reciprocal()
+    probs = pi*(norm*(-0.5*((deltas*stds.reciprocal())**2).sum(-2)).exp())
 
     # total probability
     probs = probs.sum(-1)
