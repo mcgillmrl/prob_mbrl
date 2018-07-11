@@ -38,20 +38,22 @@ def gaussian_mixture_log_likelihood(targets, means, stds, pi):
         The expected shape for mean and std is
             [batch_size, output_dimensions, n_components]
     '''
-    global TWO_PI
+    global HALF_LOG_TWO_PI
     device_id = str(targets.device.type)+str(targets.device.index)
-    if device_id not in TWO_PI:
-        TWO_PI[device_id] = TWO_PI['default'].to(targets.device)
+    if device_id not in HALF_LOG_TWO_PI:
+        HALF_LOG_TWO_PI[device_id] = HALF_LOG_TWO_PI['default'].to(
+            targets.device)
     # get deltas wrt each mixture component
     deltas = means - targets[:, :, None]
 
     # weighted probabilities
-    norm = ((TWO_PI[device_id]*(stds**2).prod(-2))**0.5).reciprocal()
-    probs = pi*(norm*(-0.5*((deltas*stds.reciprocal())**2).sum(-2)).exp())
+    log_stds = stds.log()
+    log_norm = -HALF_LOG_TWO_PI[device_id] - (log_stds).sum(-2)
+    dists = -0.5*((deltas*stds.reciprocal())**2).sum(-2)
+    log_probs = pi.log() + log_norm + dists
 
-    # total probability
-    probs = probs.sum(-1)
-    return probs.log()
+    # total log probability
+    return torch.distributions.utils.log_sum_exp(log_probs, keepdim=True)
 
 
 def quadratic_loss(states, target, Q):
