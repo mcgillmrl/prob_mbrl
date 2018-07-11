@@ -71,10 +71,22 @@ def plot_rollout(x0, forward, pol, steps):
             axarr3[r].plot(
                 np.arange(H), rw[:, r], label='reward(%d,%d)' % (r, i),
                 color='steelblue', alpha=0.3)
-    
+
     for ax in chain(axarr1, axarr2, axarr3):
         ax.figure.canvas.draw()
 
     plt.show(False)
     plt.waitforbuttonpress(0.5)
 
+
+def batch_jacobian(f, x, out_dims=None):
+    if out_dims is None:
+        y = f(x)
+        out_dims = y.shape[-1]
+    x_rep = x.repeat(out_dims, 1)
+    x_rep = torch.tensor(x_rep, requires_grad=True)
+    y_rep = f(x_rep)
+    dydx = torch.autograd.grad(
+        y_rep, x_rep, torch.eye(x.shape[-1]),
+        allow_unused=True, retain_graph=True)
+    return dydx
