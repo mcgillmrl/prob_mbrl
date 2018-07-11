@@ -11,7 +11,6 @@ from ..utils import to_complex
 class StochasticModule(torch.nn.Module):
     def __init__(self, *args, **kwargs):
         super(StochasticModule, self).__init__(*args, **kwargs)
-    
 
 
 class BDropout(StochasticModule):
@@ -47,7 +46,7 @@ class BDropout(StochasticModule):
         self.p = 1 - self.rate
         self.noise.data = torch.bernoulli(self.p.expand(x.shape))
 
-    def forward(self, x, resample=True, repeat_mask=False):
+    def forward(self, x, resample=True, repeat_mask=False, **kwargs):
         if (x.shape != self.noise.shape and not repeat_mask) or resample:
             self.update_noise(x)
         if repeat_mask:
@@ -77,7 +76,7 @@ class CDropout(BDropout):
     def update_noise(self, x):
         self.noise.data = torch.rand_like(x)
 
-    def forward(self, x, resample=True, repeat_mask=False):
+    def forward(self, x, resample=True, repeat_mask=False, **kwargs):
         if (x.shape != self.noise.shape and not repeat_mask) or resample:
             self.update_noise(x)
 
@@ -143,7 +142,7 @@ class DiagGaussianDensity(StochasticModule):
         self.output_dims = output_dims
 
     def forward(self, x, scaling_params=None, return_samples=False,
-                *args, **kwargs):
+                **kwargs):
         D = self.output_dims
         idx = torch.range(0, 2*D-1, dtype=torch.long, device=x.device)
         mean = x.index_select(-1, idx[:D])
@@ -178,7 +177,8 @@ class MixtureDensity(StochasticModule):
         self.n_components = n_components
         self.output_dims = output_dims
 
-    def forward(self, x, scaling_params=None, return_samples=False, *args, **kwargs):
+    def forward(self, x, scaling_params=None, return_samples=False,
+                **kwargs):
         D = self.output_dims
         nD = D*self.n_components
 
@@ -306,36 +306,33 @@ class DynamicsModel(Regressor):
         if inputs_as_tuple:
             prev_states, actions = inputs[0], inputs[1]
             inputs = torch.cat([prev_states, actions], -1)
-        # forward pass on model
-        pred_means, pred_stds = super(DynamicsModel, self).forward(
-            inputs, **kwargs)
 
+        # forward pass on model
+        output_samples = super(DynamicsModel, self).forward(
+            inputs, return_samples=True, **kwargs)
+            
         if callable(self.reward_func):
             # if we have a known reward function
-            states, states_std = pred_means, pred_stds
+            states = output_samples
             if not inputs_as_tuple:
-                D = pred_means.shape[-1]
+                D = output_samples.shape[-1]
                 prev_states = inputs.index_select(
                     -1, torch.range(0, D-1, device=inputs.device).long())
-            rewards, rewards_std = self.reward_func(prev_states)
+            rewards = self.reward_func(prev_states)
             if separate_outputs:
-                return (states, states_std), (rewards, rewards_std)
+                return states, rewards
             else:
-                return states, states_std
+                return states
         else:
-            D = pred_means.shape[-1] - 1
-            # assume loss comes from the last dimension of the output
-            states = pred_means.index_select(
+            D = output_samples.shape[-1] - 1
+            # assume rewards come from the last dimension of the output
+            states = output_samples.index_select(
                 -1, torch.range(0, D-1, device=inputs.device).long())
-            rewards = pred_means.index_select(
+            rewards = output_samples.index_select(
                 -1, torch.tensor(D, device=inputs.device))
             # constrain rewards
             # rewards = (self.maxR - self.minR)*rewards.sigmoid() + self.minR
             if separate_outputs:
-                states_std = pred_stds.index_select(
-                    -1, torch.range(0, D-1, device=inputs.device).long())
-                rewards_std = pred_stds.index_select(
-                    -1, torch.tensor(D, device=inputs.device))
-                return (states, states_std), (rewards, rewards_std)
+                return states, rewards
 
-        return torch.cat([states, rewards], -1), pred_stds
+            return torch.cat([states, rewards], -1)
