@@ -53,6 +53,11 @@ class BDropout(StochasticModule):
         else:
             return x*self.noise
 
+    def extra_repr(self):
+        return 'rate={}, regularizer_scale={}'.format(
+            self.rate, self.regularizer_scale
+        )
+
 
 class CDropout(BDropout):
     def __init__(self, rate=0.5,
@@ -67,9 +72,9 @@ class CDropout(BDropout):
             -torch.log(1.0/torch.tensor(1 - self.rate) - 1.0))
 
     def weights_regularizer(self, weights):
-        p = self.logit_p.sigmoid()
-        reg = 0.5*(self.regularizer_scale**2)*(p*weights**2).sum()
-        reg -= -(1-p)*(1-p).log() - p*p.log()
+        rate = 1 - self.logit_p.sigmoid()
+        reg = 0.5*(self.regularizer_scale**2)*((1-rate)*weights**2).sum()
+        reg -= -rate*rate.log() - (1-rate)*(1-rate).log()
         return reg
 
     def update_noise(self, x):
@@ -79,15 +84,20 @@ class CDropout(BDropout):
         if (x.shape != self.noise.shape and not repeat_mask) or resample:
             self.update_noise(x)
 
-        p = self.logit_p.sigmoid()
-        concrete_p = p.log() - (1-p).log()\
+        rate = 1 - self.logit_p.sigmoid()
+        concrete_p = rate.log() - (1-rate).log()\
             + self.noise.log() - (1 - self.noise).log()
-        concrete_noise = (concrete_p/self.temp).sigmoid()
+        concrete_noise = 1 - (concrete_p/self.temp).sigmoid()
 
         if repeat_mask:
             return x*concrete_noise.repeat(repeat_mask, 1)
         else:
             return x*concrete_noise
+
+    def extra_repr(self):
+        return 'rate={}, temperature={}, regularizer_scale={}'.format(
+            1-self.logit_p.sigmoid(), self.temp, self.regularizer_scale
+        )
 
 
 class BSequential(nn.modules.Sequential):
@@ -124,7 +134,8 @@ class BSequential(nn.modules.Sequential):
                                           nn.modules.conv._ConvNd):
                         reg_loss += module.weights_regularizer(
                             next_module.weight)
-                        if hasattr(next_module, 'bias') and next_module.bias is not None:
+                        if hasattr(next_module, 'bias')\
+                                and next_module.bias is not None:
                             reg_loss += module.biases_regularizer(
                                 next_module.bias)
                         break
