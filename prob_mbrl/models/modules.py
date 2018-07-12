@@ -16,7 +16,6 @@ class BDropout(StochasticModule):
     """
         Extends the base Dropout layer by adding a regularizer as derived by
         Gal and Ghahrahmani "Dropout as a Bayesian Approximation" (2015)
-
     """
 
     def __init__(self, rate=0.5,
