@@ -62,7 +62,8 @@ else:
 dynE = 2*(D+1) if learn_reward else 2*D
 dyn_model = models.dropout_mlp(
             Da+U, (dynE+1)*dyn_components, dyn_hidden,
-            dropout_layers=[models.modules.CDropout(0.1, 0.1)]*len(dyn_hidden),
+            dropout_layers=[models.modules.CDropout(0.1, 0.1)
+                            for i in range(len(dyn_hidden))],
             nonlin=torch.nn.ReLU,
             weights_initializer=torch.nn.init.xavier_normal_,
             biases_initializer=partial(torch.nn.init.uniform_, a=-1.0, b=1.0),
@@ -75,9 +76,11 @@ dyn = models.DynamicsModel(
 # initalize policy
 pol_model = models.dropout_mlp(
         Da, U, pol_hidden,
-        dropout_layers=[models.modules.BDropout(0.1)]*len(pol_hidden),
+        dropout_layers=[models.modules.BDropout(0.1)
+                        for i in range(len(pol_hidden))],
         nonlin=torch.nn.ReLU,
         output_nonlin=torch.nn.Tanh)
+
 pol = models.Policy(pol_model, maxU, angle_dims=angle_dims).float()
 randpol = RandPolicy(maxU)
 
@@ -97,7 +100,6 @@ for rand_it in range(1):
         env, randpol, H,
         callback=lambda *args, **kwargs: env.render())
     exp.append_episode(*ret)
-
 
 # policy learning loop
 for ps_it in range(100):
