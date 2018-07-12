@@ -57,6 +57,8 @@ def gaussian_mixture_log_likelihood(targets, means, stds, pi):
 
 
 def quadratic_loss(states, target, Q):
+    target = target.to(states.device)
+    Q = Q.to(states.device)
     deltas = states - target
     return (deltas.mm(Q)*deltas).sum(-1)[:, None]
 

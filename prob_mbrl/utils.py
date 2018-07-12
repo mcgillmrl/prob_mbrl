@@ -23,6 +23,7 @@ def to_complex(x, dims=[]):
     if len(dims) == 0:
         return x
     else:
+        dims = dims.to(x.device)
         angles = x.index_select(-1, dims)
         odims = torch.range(0, x.shape[-1]-1).long().to(dims.device)
         odims = (
