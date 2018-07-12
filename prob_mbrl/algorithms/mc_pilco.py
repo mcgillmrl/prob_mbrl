@@ -26,7 +26,7 @@ def rollout(states, forward, policy, steps,
     for i in range(steps):
         # sample (or query) random numbers
         z1 = get_z_rnd(z_mm, i, states.shape, states.device)
-        z2 = get_z_rnd(z_rr, i, states.shape, states.device)
+        z2 = get_z_rnd(z_rr, i, (states.shape[0], 1), states.device)
 
         # evaluate policy
         actions = policy(
