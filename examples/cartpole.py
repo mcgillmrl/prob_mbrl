@@ -27,10 +27,11 @@ def reward_fn(states, target, Q, angle_dims):
 
 # parameters
 H = 25
-N_particles = 50
-dyn_components = 2
+N_particles = 100
+dyn_components = 4
 dyn_hidden = [200]*2
 pol_hidden = [200]*2
+use_cuda = False
 
 # initialize environment
 env = cartpole.Cartpole()
@@ -57,12 +58,11 @@ else:
     reward_func = partial(
         reward_fn, target=target, Q=Q, angle_dims=angle_dims)
 
-
 # initialize dynamics model
 dynE = 2*(D+1) if learn_reward else 2*D
 dyn_model = models.dropout_mlp(
             Da+U, (dynE+1)*dyn_components, dyn_hidden,
-            dropout_layers=[models.modules.CDropout(0.1, 0.1)
+            dropout_layers=[models.modules.CDropout(0.5, 0.1)
                             for i in range(len(dyn_hidden))],
             nonlin=torch.nn.ReLU,
             weights_initializer=torch.nn.init.xavier_normal_,
@@ -76,7 +76,7 @@ dyn = models.DynamicsModel(
 # initalize policy
 pol_model = models.dropout_mlp(
         Da, U, pol_hidden,
-        dropout_layers=[models.modules.BDropout(0.1)
+        dropout_layers=[models.modules.BDropout(0.5)
                         for i in range(len(pol_hidden))],
         nonlin=torch.nn.ReLU,
         output_nonlin=torch.nn.Tanh)
@@ -87,9 +87,11 @@ randpol = RandPolicy(maxU)
 # initalize experience dataset
 exp = ExperienceDataset()
 
+# initialize dynamics optimizer
+opt1 = torch.optim.Adam(dyn.parameters(), 1e-3, amsgrad=True)
+
 # initialize policy optimizer
-params = filter(lambda p: p.requires_grad, pol.parameters())
-opt = torch.optim.Adam(params, 1e-4, amsgrad=True)
+opt2 = torch.optim.Adam(pol.parameters(), 1e-3, amsgrad=True)
 
 # define functions required for rollouts
 forward_fn = partial(forward, dynamics=dyn)
@@ -98,15 +100,19 @@ forward_fn = partial(forward, dynamics=dyn)
 for rand_it in range(1):
     ret = apply_controller(
         env, randpol, H,
-        callback=lambda *args, **kwargs: env.render())
+        callback=None) # lambda *args, **kwargs: env.render())
     exp.append_episode(*ret)
+
+if use_cuda and torch.cuda.is_available():
+    dyn = dyn.cuda()
+    pol = pol.cuda()
 
 # policy learning loop
 for ps_it in range(100):
     # apply policy
     ret = apply_controller(
         env, pol, H,
-        callback=lambda *args, **kwargs: env.render())
+        callback=None)
     exp.append_episode(*ret)
 
     # train dynamics
@@ -115,7 +121,7 @@ for ps_it in range(100):
         torch.tensor(X).to(dyn.X.device).float(),
         torch.tensor(Y).to(dyn.X.device).float())
     train_regressor(
-        dyn, 1000, N_particles, True,
+        dyn, 2000, N_particles, True, opt1,
         log_likelihood=losses.gaussian_mixture_log_likelihood)
 
     # sample initial states for policy optimization
@@ -127,7 +133,7 @@ for ps_it in range(100):
     # train policy
     print "Policy search iteration %d" % (ps_it+1)
     algorithms.mc_pilco(
-        x0, forward_fn, dyn, pol, H, opt, exp=exp,
-        maximize=False, pegasus=True, mm_states=False,
-        mm_rewards=False, mpc=False, max_steps=25)
+        x0, forward_fn, dyn, pol, H, opt2, exp, 1000,
+        maximize=False, pegasus=False, mm_states=True,
+        mm_rewards=True, mpc=False, max_steps=25)
     utils.plot_rollout(x0, forward_fn, pol, H)
