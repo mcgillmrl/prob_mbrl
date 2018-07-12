@@ -15,7 +15,7 @@ class DiagGaussianDensity(StochasticModule):
         self.register_buffer('z', torch.ones([1, 1]))
 
     def resample(self, *args, **kwargs):
-        self.z.data = torch.randn(self.z.shape)
+        self.z.data = torch.randn_like(self.z)
 
     def forward(self, x, scaling_params=None, return_samples=False,
                 output_noise=True, resample_output_noise=True, **kwargs):
@@ -59,8 +59,8 @@ class MixtureDensity(StochasticModule):
         self.register_buffer('z_pi', torch.ones([1, 1]))
 
     def resample(self, *args, **kwargs):
-        self.z_pi.data = torch.rand(self.z_pi.shape)
-        self.z_normal.data = torch.randn(self.z_normal.shape)
+        self.z_pi.data = torch.rand_like(self.z_pi)
+        self.z_normal.data = torch.randn_like(self.z_normal)
 
     def forward(self, x, scaling_params=None, return_samples=False,
                 output_noise=True, resample_output_noise=True, **kwargs):
@@ -93,8 +93,10 @@ class MixtureDensity(StochasticModule):
             k = k[:, None, None].repeat(1, mean.shape[-2], 1)
             samples = mean.gather(-1, k).squeeze()
             if output_noise:
-                if (mean[:-1].shape != self.z_pi.shape) or resample_output_noise:
-                    self.z_normal.data = torch.randn(*mean.shape[:-1])
+                if (mean[:-1].shape != self.z_pi.shape)\
+                        or resample_output_noise:
+                    self.z_normal.data = torch.randn(
+                        *mean.shape[:-1], device=mean.device)
                 z2 = self.z_normal
                 samples = samples + z2*std.gather(-1, k).squeeze()
             return samples
