@@ -26,10 +26,9 @@ class BDropout(StochasticModule):
         super(BDropout, self).__init__(**kwargs)
         self.name = name
         self.regularizer_scale = regularizer_scale
-        self.rate = Parameter(torch.tensor(rate), requires_grad=False)
+        self.register_buffer('rate', torch.tensor(rate))
         self.p = 1 - self.rate
-        self.noise = Parameter(
-            torch.bernoulli(1.0 - self.rate), requires_grad=False)
+        self.register_buffer('noise', torch.bernoulli(1.0 - self.rate))
 
     def weights_regularizer(self, weights):
         self.p = 1 - self.rate
@@ -67,7 +66,7 @@ class CDropout(BDropout):
                  **kwargs):
         super(CDropout, self).__init__(
             rate, name, regularizer_scale, **kwargs)
-        self.temp = Parameter(torch.tensor(temperature), requires_grad=False)
+        self.register_buffer('temp', torch.tensor(temperature))
         self.logit_p = Parameter(
             -torch.log(1.0/torch.tensor(1 - self.rate) - 1.0))
 
@@ -147,16 +146,15 @@ class Regressor(torch.nn.Module):
         super(Regressor, self).__init__()
         self.model = model
         self.output_density = output_density
-        self.angle_dims = torch.nn.Parameter(
-            torch.tensor(angle_dims).long(), requires_grad=False)
-        self.X = torch.nn.Parameter(torch.ones([1, 1]), requires_grad=False)
-        self.Y = torch.nn.Parameter(torch.ones([1, 1]), requires_grad=False)
-        self.mx = torch.nn.Parameter(torch.ones([1, 1]), requires_grad=False)
-        self.Sx = torch.nn.Parameter(torch.ones([1, 1]), requires_grad=False)
-        self.iSx = torch.nn.Parameter(torch.ones([1, 1]), requires_grad=False)
-        self.my = torch.nn.Parameter(torch.ones([1, 1]), requires_grad=False)
-        self.Sy = torch.nn.Parameter(torch.ones([1, 1]), requires_grad=False)
-        self.iSy = torch.nn.Parameter(torch.ones([1, 1]), requires_grad=False)
+        self.register_buffer('angle_dims', torch.tensor(angle_dims).long())
+        self.register_buffer('X', torch.ones([1, 1]))
+        self.register_buffer('Y', torch.ones([1, 1]))
+        self.register_buffer('mx', torch.ones([1, 1]))
+        self.register_buffer('Sx', torch.ones([1, 1]))
+        self.register_buffer('iSx', torch.ones([1, 1]))
+        self.register_buffer('my', torch.ones([1, 1]))
+        self.register_buffer('Sy', torch.ones([1, 1]))
+        self.register_buffer('iSy', torch.ones([1, 1]))
 
     def set_dataset(self, X, Y):
         self.X.data = to_complex(X, self.angle_dims)
@@ -198,12 +196,9 @@ class Policy(torch.nn.Module):
     def __init__(self, model, out_scale=1.0, out_bias=0.0, angle_dims=[]):
         super(Policy, self).__init__()
         self.model = model
-        self.angle_dims = torch.nn.Parameter(
-            torch.tensor(angle_dims).long(), requires_grad=False)
-        self.scale = torch.nn.Parameter(
-            torch.tensor(out_scale), requires_grad=False)
-        self.bias = torch.nn.Parameter(
-            torch.tensor(out_bias), requires_grad=False)
+        self.register_buffer('angle_dims', torch.tensor(angle_dims).long())
+        self.register_buffer('scale', torch.tensor(out_scale))
+        self.register_buffer('bias', torch.tensor(out_bias))
 
     def resample(self, *args, **kwargs):
         self.model.resample(*args, **kwargs)
@@ -225,10 +220,8 @@ class Policy(torch.nn.Module):
 class DynamicsModel(Regressor):
     def __init__(self, model, reward_func=None, **kwargs):
         super(DynamicsModel, self).__init__(model, **kwargs)
-        self.maxR = torch.nn.Parameter(
-            torch.ones([1, 1]), requires_grad=False)
-        self.minR = torch.nn.Parameter(
-            torch.ones([1, 1]), requires_grad=False)
+        self.register_buffer('maxR', torch.ones([1, 1]))
+        self.register_buffer('minR', torch.ones([1, 1]))
         self.reward_func = reward_func
 
     def set_dataset(self, X, Y):

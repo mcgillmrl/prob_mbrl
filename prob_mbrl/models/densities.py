@@ -1,8 +1,6 @@
 import torch
 import warnings
 
-from torch.nn import Parameter
-
 from prob_mbrl.models import StochasticModule
 
 
@@ -14,8 +12,7 @@ class DiagGaussianDensity(StochasticModule):
     def __init__(self, output_dims):
         super(DiagGaussianDensity, self).__init__()
         self.output_dims = output_dims
-        self.z = Parameter(
-            torch.ones([1, 1]), requires_grad=False)
+        self.register_buffer('z', torch.ones([1, 1]))
 
     def resample(self, *args, **kwargs):
         self.z.data = torch.randn(self.z.shape)
@@ -58,10 +55,8 @@ class MixtureDensity(StochasticModule):
         super(MixtureDensity, self).__init__(**kwargs)
         self.n_components = n_components
         self.output_dims = output_dims
-        self.z_normal = Parameter(
-            torch.ones([1, 1]), requires_grad=False)
-        self.z_pi = Parameter(
-            torch.ones([1, 1]), requires_grad=False)
+        self.register_buffer('z_normal', torch.ones([1, 1]))
+        self.register_buffer('z_pi', torch.ones([1, 1]))
 
     def resample(self, *args, **kwargs):
         self.z_pi.data = torch.rand(self.z_pi.shape)
