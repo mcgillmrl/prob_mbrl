@@ -135,6 +135,6 @@ for ps_it in range(100):
     print "Policy search iteration %d" % (ps_it+1)
     algorithms.mc_pilco(
         x0, forward_fn, dyn, pol, H, opt2, exp, 1000,
-        maximize=False, pegasus=False, mm_states=True,
+        maximize=False, pegasus=True, mm_states=True,
         mm_rewards=True, mpc=False, max_steps=25)
     utils.plot_rollout(x0, forward_fn, pol, H)
