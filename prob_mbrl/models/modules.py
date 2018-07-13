@@ -43,13 +43,14 @@ class BDropout(StochasticModule):
         self.p = 1 - self.rate
         self.noise.data = torch.bernoulli(self.p.expand(x.shape))
 
-    def forward(self, x, resample=True, repeat_mask=False, **kwargs):
-        if (x.shape != self.noise.shape and not repeat_mask) or resample:
-            self.update_noise(x)
-        if repeat_mask:
-            return x*self.noise.repeat(repeat_mask, 1)
-        else:
-            return x*self.noise
+    def forward(self, x, resample=True, mask_dims=2, **kwargs):
+        sample_shape = x.shape[-mask_dims:]
+        if sample_shape != self.noise.shape:
+            sample = x.view(-1, *sample_shape)[0]
+            self.update_noise(sample)
+        elif resample:
+            self.noise.bernoulli_(self.p)
+        return x*self.noise
 
     def extra_repr(self):
         return 'rate={}, regularizer_scale={}'.format(
@@ -78,19 +79,18 @@ class CDropout(BDropout):
     def update_noise(self, x):
         self.noise.data = torch.rand_like(x)
 
-    def forward(self, x, resample=True, repeat_mask=False, **kwargs):
-        if (x.shape != self.noise.shape and not repeat_mask) or resample:
-            self.update_noise(x)
+    def forward(self, x, resample=True, mask_dims=2, **kwargs):
+        sample_shape = x.shape[-mask_dims:]
+        if sample_shape != self.noise.shape:
+            sample = x.view(-1, *sample_shape)[0]
+            self.update_noise(sample)
+        elif resample:
+            self.noise.uniform_()
 
-        rate = 1 - self.logit_p.sigmoid()
-        concrete_p = rate.log() - (1-rate).log()\
-            + self.noise.log() - (1 - self.noise).log()
+        concrete_p = -self.logit_p + self.noise.log() - (1 - self.noise).log()
         concrete_noise = 1 - (concrete_p/self.temp).sigmoid()
 
-        if repeat_mask:
-            return x*concrete_noise.repeat(repeat_mask, 1)
-        else:
-            return x*concrete_noise
+        return x*concrete_noise
 
     def extra_repr(self):
         return 'rate={}, temperature={}, regularizer_scale={}'.format(
