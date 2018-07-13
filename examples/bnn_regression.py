@@ -69,7 +69,7 @@ mmodel = models.Regressor(
 
 
 # optimizer for single gaussian model
-opt1 = torch.optim.Adam(model.parameters(), 1e-3, amsgrad=False)
+opt1 = torch.optim.Adam(model.parameters(), 1e-3, amsgrad=True)
 
 # optimizer for mixture density network
 opt2 = torch.optim.Adam(mmodel.parameters(), 1e-3, amsgrad=True)

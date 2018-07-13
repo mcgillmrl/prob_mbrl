@@ -8,6 +8,7 @@ from kusanagi.base import ExperienceDataset, apply_controller
 from kusanagi.ghost.control import RandPolicy
 
 from prob_mbrl import utils, models, algorithms, losses, train_regressor
+torch.set_flush_denormal(True)
 torch.set_num_threads(2)
 
 
@@ -76,7 +77,7 @@ dyn = models.DynamicsModel(
 # initalize policy
 pol_model = models.dropout_mlp(
         Da, U, pol_hidden,
-        dropout_layers=[models.modules.BDropout(0.5)
+        dropout_layers=[models.modules.BDropout(0.1)
                         for i in range(len(pol_hidden))],
         nonlin=torch.nn.ReLU,
         output_nonlin=torch.nn.Tanh)
