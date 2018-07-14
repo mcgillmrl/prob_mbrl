@@ -88,8 +88,8 @@ class CDropout(BDropout):
         elif resample:
             self.noise.uniform_()
 
-        concrete_p = -self.logit_p + self.noise.log() - (1 - self.noise).log()
-        concrete_noise = 1 - (concrete_p/self.temp).sigmoid()
+        concrete_p = self.logit_p + self.noise.log() - (1 - self.noise).log()
+        concrete_noise = (concrete_p/self.temp).sigmoid()
 
         return x*concrete_noise
 
@@ -119,7 +119,6 @@ class BSequential(nn.modules.Sequential):
             else:
                 input = module(input)
         return input
-
 
     def regularization_loss(self):
         modules = self._modules.values()
