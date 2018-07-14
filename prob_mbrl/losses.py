@@ -1,28 +1,31 @@
 import numpy as np
 import torch
 
+from torch.distributions.utils import log_sum_exp
+from torch.nn.functional import log_softmax
+
 PI = {'default': torch.tensor(np.pi)}
 TWO_PI = {'default': 2*PI['default']}
 LOG_TWO_PI = {'default': torch.log(TWO_PI['default'])}
 HALF_LOG_TWO_PI = {'default': 0.5*LOG_TWO_PI['default']}
 
 
-def gaussian_log_likelihood(targets, pred_means, pred_stds=None):
+def gaussian_log_likelihood(targets, means, log_stds=None):
     ''' Computes the log likelihood for gaussian distributed predictions.
         This assumes diagonal covariances
     '''
     global HALF_LOG_TWO_PI
-    deltas = pred_means - targets
+    deltas = means - targets
     # note that if noise is a 1xD vector, broadcasting
     # rules apply
-    if pred_stds is not None:
+    if log_stds is not None:
         device_id = str(targets.device.type)+str(targets.device.index)
         if device_id not in HALF_LOG_TWO_PI:
             HALF_LOG_TWO_PI[device_id] = HALF_LOG_TWO_PI['default'].to(
                 targets.device)
-
-        lml = -((deltas*pred_stds.reciprocal())**2).sum(-1)*0.5\
-              - pred_stds.log().sum(-1)\
+        stds = log_stds.exp()
+        lml = -((deltas*stds.reciprocal())**2).sum(-1)*0.5\
+              - log_stds.sum(-1)\
               - HALF_LOG_TWO_PI[device_id]
     else:
         lml = -(deltas**2).sum(-1)*0.5
@@ -30,7 +33,7 @@ def gaussian_log_likelihood(targets, pred_means, pred_stds=None):
     return lml
 
 
-def gaussian_mixture_log_likelihood(targets, means, stds, pi):
+def gaussian_mixture_log_likelihood(targets, means, log_stds, pi):
     '''
         Returns the log probability of targets under the mixture
         distribution parametrized by means, stds and pi.
@@ -47,13 +50,13 @@ def gaussian_mixture_log_likelihood(targets, means, stds, pi):
     deltas = means - targets[:, :, None]
 
     # weighted probabilities
-    log_stds = stds.log()
+    stds = log_stds.exp()
     log_norm = -HALF_LOG_TWO_PI[device_id] - (log_stds).sum(-2)
     dists = -0.5*((deltas*stds.reciprocal())**2).sum(-2)
     log_probs = pi.log() + log_norm + dists
 
     # total log probability
-    return torch.distributions.utils.log_sum_exp(log_probs, keepdim=True)
+    return log_sum_exp(log_probs, keepdim=True)
 
 
 def quadratic_loss(states, target, Q):
