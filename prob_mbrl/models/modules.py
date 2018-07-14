@@ -24,17 +24,18 @@ class BDropout(StochasticModule):
                  **kwargs):
         super(BDropout, self).__init__(**kwargs)
         self.name = name
-        self.regularizer_scale = regularizer_scale
+        self.register_buffer(
+            'regularizer_scale', torch.tensor(0.5*regularizer_scale**2))
         self.register_buffer('rate', torch.tensor(rate))
         self.p = 1 - self.rate
         self.register_buffer('noise', torch.bernoulli(1.0 - self.rate))
 
     def weights_regularizer(self, weights):
         self.p = 1 - self.rate
-        return 0.5*(self.regularizer_scale**2)*(self.p*weights**2).sum()
+        return self.regularizer_scale*(self.p*(weights**2)).sum()
 
     def biases_regularizer(self, biases):
-        return 0.5*(self.regularizer_scale**2)*(biases**2).sum()
+        return self.regularizer_scale*(biases**2).sum()
 
     def resample(self):
         self.update_noise(self.noise)
@@ -71,9 +72,9 @@ class CDropout(BDropout):
             -torch.log(1.0/torch.tensor(1 - self.rate) - 1.0))
 
     def weights_regularizer(self, weights):
-        rate = 1 - self.logit_p.sigmoid()
-        reg = 0.5*(self.regularizer_scale**2)*((1-rate)*weights**2).sum()
-        reg -= -rate*rate.log() - (1-rate)*(1-rate).log()
+        p = self.logit_p.sigmoid()
+        reg = self.regularizer_scale*(p*(weights**2)).sum()
+        reg -= -p*p.log() - (1-p)*(1-p).log()
         return reg
 
     def update_noise(self, x):
@@ -118,6 +119,7 @@ class BSequential(nn.modules.Sequential):
             else:
                 input = module(input)
         return input
+
 
     def regularization_loss(self):
         modules = self._modules.values()
@@ -246,16 +248,12 @@ class DynamicsModel(Regressor):
             states = outs
             if not inputs_as_tuple:
                 D = outs.shape[-1]
-                prev_states = inputs.index_select(
-                    -1, torch.range(0, D-1, device=inputs.device).long())
+                prev_states, actions = inputs.split(D, -1)
             rewards = self.reward_func(prev_states)
         else:
             D = outs.shape[-1] - 1
             # assume rewards come from the last dimension of the output
-            states = outs.index_select(
-                -1, torch.range(0, D-1, device=inputs.device).long())
-            rewards = outs.index_select(
-                -1, torch.tensor(D, device=inputs.device))
+            states, rewards = outs.split(D, -1)
             # constrain rewards
             # rewards = (self.maxR - self.minR)*rewards.sigmoid() + self.minR
         if separate_outputs:
