@@ -36,11 +36,11 @@ def dropout_mlp(input_dims, output_dims, hidden_dims=[200, 200],
             drop_i = drop_i(name='drop%d' % i)
         # fully connected layer
         modules['fc%d' % i] = torch.nn.Linear(din, dout)
-        # dropout
-        if drop_i is not None:
-            modules['drop%d' % i] = drop_i
         # activation
         modules['nonlin%d' % i] = nonlin()
+        # dropout (regularizes next layer)
+        if drop_i is not None:
+            modules['drop%d' % i] = drop_i
 
     # project to output dimensions
     modules['fc_out'] = torch.nn.Linear(dims[-1], output_dims)
