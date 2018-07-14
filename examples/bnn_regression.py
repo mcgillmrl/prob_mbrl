@@ -3,24 +3,25 @@ import numpy as np
 import torch
 from functools import partial
 from matplotlib import pyplot as plt
+from scipy.special import logsumexp
 from prob_mbrl import train_regressor, losses, models
 torch.set_flush_denormal(True)
 torch.set_num_threads(2)
 
 
-def gaussian_sample(mu, sigma):
+def gaussian_sample(mu, log_sigma):
     z2 = np.random.randn(*mu.shape)
-    return mu + z2*sigma
+    return mu + z2*np.exp(log_sigma)
 
 
-def mixture_sample(mu, sigma, pi, colors=None, noise=True):
-    z1 = np.random.rand(*pi.shape)
-    k = (np.log(pi+1e-10) + z1).argmax(-1)
+def mixture_sample(mu, log_sigma, logit_pi, colors=None, noise=True):
+    z1 = np.random.rand(*logit_pi.shape)
+    k = (logit_pi - logsumexp(logit_pi, -1)[:, None] + z1).argmax(-1)
     idx = np.arange(len(mu))
     samples = mu[idx, k]
     if noise:
         z2 = np.random.randn(*mu.shape[:-1])
-        samples += z2*sigma[idx, k]
+        samples += z2*np.exp(log_sigma[idx, k])
 
     if colors is not None:
         return samples, colors[k]
@@ -41,7 +42,7 @@ drop_rate = 0.25
 odims = 1
 n_components = 5
 N_ensemble = 100
-use_cuda = False
+use_cuda = True
 
 # single gaussian output model
 model = models.Regressor(
@@ -122,12 +123,10 @@ plt.figure(figsize=(16, 9))
 nc = ret.shape[-2]
 colors = list(plt.cm.rainbow_r(np.linspace(0, 1, nc)))
 for i in range(len(ret)):
-    m, S = ret[i, :, 0], ret[i, :, 1]
-    samples = gaussian_sample(m, S)
+    m, logS = ret[i, :, 0], ret[i, :, 1]
+    samples = gaussian_sample(m, logS)
     plt.scatter(test_x, m, c=colors[0], s=1)
     plt.scatter(test_x, samples, c=colors[0]*0.5, s=1)
-m = ret[:, :, 0].mean(0)
-S = ret[:, :, 0].std(0)
 plt.plot(test_x, f(test_x), linestyle='--', label='true function')
 plt.scatter(X.cpu().numpy().flatten(), Y.cpu().numpy().flatten())
 plt.xlabel('$x$', fontsize=18)
@@ -138,19 +137,19 @@ print(model)
 # evaluate mixture density network
 test_x = np.arange(-1.0, 1.5, 0.005)
 ret = []
-weights = []
+logit_weights = []
 # mmodel.model.resample()
 for i, x in enumerate(test_x):
     x = torch.tensor(x[None]).float().to(mmodel.X.device)
     outs = mmodel(x.expand((N_ensemble, 1)), resample=False)
     y = torch.cat(outs[:2], -2)
     ret.append(y.cpu().detach().numpy())
-    weights.append(outs[2].cpu().detach().numpy())
+    logit_weights.append(outs[2].cpu().detach().numpy())
     torch.cuda.empty_cache()
 ret = np.stack(ret)
 ret = ret.transpose(1, 0, 2, 3)
-weights = np.stack(weights)
-weights = weights.transpose(1, 0, 2)
+logit_weights = np.stack(logit_weights)
+logit_weights = logit_weights.transpose(1, 0, 2)
 torch.cuda.empty_cache()
 for i in range(3):
     gc.collect()
@@ -160,15 +159,13 @@ nc = ret.shape[-1]
 colors = np.array(list(plt.cm.rainbow_r(np.linspace(0, 1, nc))))
 total_samples = []
 for i in range(len(ret)):
-    m, S = ret[i, :, 0, :], ret[i, :, 1, :]
-    samples, c = mixture_sample(m, S, weights[i], colors)
+    m, logS = ret[i, :, 0, :], ret[i, :, 1, :]
+    samples, c = mixture_sample(m, logS, logit_weights[i], colors)
     plt.scatter(test_x, samples, c=c*0.5, s=1)
-    samples, c = mixture_sample(m, S, weights[i], colors, noise=False)
+    samples, c = mixture_sample(m, logS, logit_weights[i], colors, noise=False)
     plt.scatter(test_x, samples, c=c, s=1)
     total_samples.append(samples)
 total_samples = np.array(total_samples)
-m = total_samples.mean(0)
-S = total_samples.std(0)
 plt.plot(test_x, f(test_x), linestyle='--', label='true function')
 plt.scatter(X.cpu().numpy().flatten(), Y.cpu().numpy().flatten())
 plt.xlabel('$x$', fontsize=18)

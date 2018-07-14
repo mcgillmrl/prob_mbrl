@@ -37,23 +37,24 @@ def plot_rollout(x0, forward, pol, steps):
         x0, forward, pol, steps, resample_model=False,
         resample_policy=False, resample_particles=False)
     states, actions, rewards = (
-        torch.stack(x).transpose(0,1).cpu().detach().numpy() for x in zip(*trajs))
+        torch.stack(x).transpose(0, 1).cpu().detach().numpy()
+        for x in zip(*trajs))
     names = ['Rolled out States', 'Predicted Actions', 'Predicted Rewards']
     for name in names:
         fig = plt.figure(name)
         fig.clear()
 
     fig1, axarr1 = plt.subplots(
-        states.shape[-1], num=names[0], sharex=True, figsize=(16,9))
+        states.shape[-1], num=names[0], sharex=True, figsize=(16, 9))
     fig2, axarr2 = plt.subplots(
-        actions.shape[-1], num=names[1], sharex=True, figsize=(16,3))
+        actions.shape[-1], num=names[1], sharex=True, figsize=(16, 3))
     fig3, axarr3 = plt.subplots(
-        actions.shape[-1], num=names[2], sharex=True, figsize=(16,3))
+        actions.shape[-1], num=names[2], sharex=True, figsize=(16, 3))
 
     axarr1 = [axarr1] if not isinstance(axarr1, Iterable) else axarr1
     axarr2 = [axarr2] if not isinstance(axarr2, Iterable) else axarr2
     axarr3 = [axarr3] if not isinstance(axarr3, Iterable) else axarr3
-    
+
     for i, (st, ac, rw) in enumerate(zip(states, actions, rewards)):
         H, D = st.shape
         for d in range(D):
@@ -65,7 +66,7 @@ def plot_rollout(x0, forward, pol, steps):
         for a in range(A):
             axarr2[a].plot(
                 np.arange(H), ac[:, a], label='action(%d,%d)' % (a, i),
-                color='steelblue', alpha=0.3)          
+                color='steelblue', alpha=0.3)
 
         H, R = rw.shape
         for r in range(R):

@@ -69,7 +69,6 @@ class MixtureDensity(StochasticModule):
         mean, log_std, logit_pi = x.split(nD, -1)
         mean = mean.view(-1, D, self.n_components)
         log_std = log_std.view(-1, D, self.n_components)
-        pi = torch.nn.functional.softmax(logit_pi, -1)
 
         # scale and center outputs
         if scaling_params is not None and len(scaling_params) > 0:
@@ -85,7 +84,7 @@ class MixtureDensity(StochasticModule):
             if (logit_pi.shape != self.z_pi.shape) or resample_output_noise:
                 self.z_pi.data = torch.rand_like(logit_pi)
             z1 = self.z_pi
-            k = (pi.log() + z1).argmax(-1)
+            k = (log_softmax(logit_pi, -1) + z1).argmax(-1)
             k = k[:, None, None].repeat(1, mean.shape[-2], 1)
             samples = mean.gather(-1, k).squeeze()
             if output_noise:
@@ -97,4 +96,4 @@ class MixtureDensity(StochasticModule):
                 samples = samples + z2*log_std.gather(-1, k).squeeze().exp()
             return samples
         else:
-            return mean, log_std, pi
+            return mean, log_std, logit_pi

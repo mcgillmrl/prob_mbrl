@@ -33,7 +33,7 @@ def gaussian_log_likelihood(targets, means, log_stds=None):
     return lml
 
 
-def gaussian_mixture_log_likelihood(targets, means, log_stds, pi):
+def gaussian_mixture_log_likelihood(targets, means, log_stds, logit_pi):
     '''
         Returns the log probability of targets under the mixture
         distribution parametrized by means, stds and pi.
@@ -53,7 +53,7 @@ def gaussian_mixture_log_likelihood(targets, means, log_stds, pi):
     stds = log_stds.exp()
     log_norm = -HALF_LOG_TWO_PI[device_id] - (log_stds).sum(-2)
     dists = -0.5*((deltas*stds.reciprocal())**2).sum(-2)
-    log_probs = pi.log() + log_norm + dists
+    log_probs = log_softmax(logit_pi, -1) + log_norm + dists
 
     # total log probability
     return log_sum_exp(log_probs, keepdim=True)
