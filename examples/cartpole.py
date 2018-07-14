@@ -101,7 +101,7 @@ forward_fn = partial(forward, dynamics=dyn)
 for rand_it in range(1):
     ret = apply_controller(
         env, randpol, H,
-        callback=None) # lambda *args, **kwargs: env.render())
+        callback=None)  # lambda *args, **kwargs: env.render())
     exp.append_episode(*ret)
 
 if use_cuda and torch.cuda.is_available():
@@ -135,6 +135,6 @@ for ps_it in range(100):
     print "Policy search iteration %d" % (ps_it+1)
     algorithms.mc_pilco(
         x0, forward_fn, dyn, pol, H, opt2, exp, 1000,
-        maximize=False, pegasus=True, mm_states=True,
-        mm_rewards=True, mpc=False, max_steps=25)
+        pegasus=True, mm_states=True, mm_rewards=True, 
+        maximize=False,  clip_grad=1.0, mpc=False, max_steps=25)
     utils.plot_rollout(x0, forward_fn, pol, H)
