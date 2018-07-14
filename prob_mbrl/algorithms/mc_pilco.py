@@ -42,14 +42,14 @@ def rollout(states, forward, policy, steps,
         if mm_states:
             m = next_states.mean(0)
             deltas = next_states - m
-            jitter = 1e-12*torch.eye(m.shape[-1], device=m.device)
+            jitter = 1e-9*torch.eye(m.shape[-1], device=m.device)
             S = deltas.t().mm(deltas)/M + jitter
             next_states = m + z1.mm(S.potrf())
 
         if mm_rewards:
             m = rewards.mean(0)
             deltas = rewards - m
-            jitter = 1e-12*torch.eye(m.shape[-1], device=m.device)
+            jitter = 1e-9*torch.eye(m.shape[-1], device=m.device)
             S = deltas.t().mm(deltas)/M + jitter
             rewards = m + z2.mm(S.potrf())
 
