@@ -82,8 +82,9 @@ class MixtureDensity(StochasticModule):
                     "Expected scaling_params as tuple or list with 2 elements")
         if return_samples:
             if (logit_pi.shape != self.z_pi.shape) or resample_output_noise:
-                self.z_pi.data = torch.rand_like(logit_pi)
+                self.z_pi.data = -(-torch.rand_like(logit_pi).log()).log()
             z1 = self.z_pi
+            # replace this sampling operation 
             k = (log_softmax(logit_pi, -1) + z1).argmax(-1)
             k = k[:, None, None].repeat(1, mean.shape[-2], 1)
             samples = mean.gather(-1, k).squeeze()

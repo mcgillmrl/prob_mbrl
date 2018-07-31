@@ -50,7 +50,7 @@ class BDropout(StochasticModule):
             sample = x.view(-1, *sample_shape)[0]
             self.update_noise(sample)
         elif resample:
-            self.noise.bernoulli_(self.p)
+            return x*torch.bernoulli(self.p.expand(x.shape))
         return x*self.noise
 
     def extra_repr(self):
@@ -82,13 +82,15 @@ class CDropout(BDropout):
 
     def forward(self, x, resample=True, mask_dims=2, **kwargs):
         sample_shape = x.shape[-mask_dims:]
+        noise = self.noise
         if sample_shape != self.noise.shape:
             sample = x.view(-1, *sample_shape)[0]
             self.update_noise(sample)
+            noise = self.noise
         elif resample:
-            self.noise.uniform_()
+            noise = torch.rand_like(x)
 
-        concrete_p = self.logit_p + self.noise.log() - (1 - self.noise).log()
+        concrete_p = self.logit_p + noise.log() - (1 - noise).log()
         concrete_noise = (concrete_p/self.temp).sigmoid()
 
         return x*concrete_noise

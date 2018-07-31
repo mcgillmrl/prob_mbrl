@@ -16,14 +16,12 @@ def forward(states, actions, dynamics, **kwargs):
     deltas, rewards = dynamics(
         (states, actions), return_samples=True,
         separate_outputs=True, **kwargs)
-    next_states = states + deltas
-    return next_states, rewards
+    return states + deltas, rewards
 
 
 def reward_fn(states, target, Q, angle_dims):
     states = utils.to_complex(states, angle_dims)
-    reward = losses.quadratic_saturating_loss(states, target, Q)
-    return reward
+    return -losses.quadratic_saturating_loss(states, target, Q)
 
 
 # parameters
@@ -31,7 +29,7 @@ H = 25
 N_particles = 100
 dyn_components = 4
 dyn_hidden = [200]*2
-pol_hidden = [200]*2
+pol_hidden = [50]*2
 use_cuda = False
 
 # initialize environment
@@ -65,9 +63,7 @@ dyn_model = models.dropout_mlp(
             Da+U, (dynE+1)*dyn_components, dyn_hidden,
             dropout_layers=[models.modules.CDropout(0.5, 0.1)
                             for i in range(len(dyn_hidden))],
-            nonlin=torch.nn.ReLU,
-            weights_initializer=torch.nn.init.xavier_normal_,
-            biases_initializer=partial(torch.nn.init.uniform_, a=-1.0, b=1.0),
+            nonlin=torch.nn.ReLU
         )
 dyn = models.DynamicsModel(
     dyn_model, reward_func=reward_func,
@@ -79,7 +75,9 @@ pol_model = models.dropout_mlp(
         Da, U, pol_hidden,
         dropout_layers=[models.modules.BDropout(0.1)
                         for i in range(len(pol_hidden))],
-        nonlin=torch.nn.ReLU,
+        nonlin=torch.nn.Tanh,
+        weights_initializer=torch.nn.init.xavier_normal_,
+        biases_initializer=None,
         output_nonlin=torch.nn.Tanh)
 
 pol = models.Policy(pol_model, maxU, angle_dims=angle_dims).float()
@@ -89,10 +87,10 @@ randpol = RandPolicy(maxU)
 exp = ExperienceDataset()
 
 # initialize dynamics optimizer
-opt1 = torch.optim.Adam(dyn.parameters(), 1e-3, amsgrad=True)
+opt1 = torch.optim.Adam(dyn.parameters(), 1e-3)
 
 # initialize policy optimizer
-opt2 = torch.optim.Adam(pol.parameters(), 1e-3, amsgrad=True)
+opt2 = torch.optim.Adam(pol.parameters(), 1e-3)
 
 # define functions required for rollouts
 forward_fn = partial(forward, dynamics=dyn)
@@ -128,7 +126,7 @@ for ps_it in range(100):
     # sample initial states for policy optimization
     x0 = torch.tensor(
         exp.sample_states(N_particles, timestep=0)).to(dyn.X.device).float()
-    x0 += 1e-2*x0.std(0)*torch.randn_like(x0)
+    x0 += 1e-1*x0.std(0)*torch.randn_like(x0)
     utils.plot_rollout(x0, forward_fn, pol, H)
 
     # train policy
@@ -136,5 +134,5 @@ for ps_it in range(100):
     algorithms.mc_pilco(
         x0, forward_fn, dyn, pol, H, opt2, exp, 1000,
         pegasus=True, mm_states=True, mm_rewards=False,
-        maximize=False,  clip_grad=1.0, mpc=False, max_steps=25)
+        maximize=True,  clip_grad=1.0, mpc=False, max_steps=25)
     utils.plot_rollout(x0, forward_fn, pol, H)

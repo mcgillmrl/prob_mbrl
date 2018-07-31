@@ -7,6 +7,8 @@ from matplotlib import pyplot as plt
 
 from algorithms.mc_pilco import rollout
 
+ODIMS = {}
+
 
 def iterate_minibatches(inputs, targets, batchsize):
     assert len(inputs) == len(targets)
@@ -20,15 +22,26 @@ def iterate_minibatches(inputs, targets, batchsize):
 
 
 def to_complex(x, dims=[]):
+    global ODIMS
     if len(dims) == 0:
         return x
     else:
         dims = dims.to(x.device)
+
+        # check cache for indices
+        odims_id = (x.shape[-1], dims)
+        if odims_id in ODIMS:
+            odims = ODIMS[odims_id]
+        else:
+            # build indices for other dimensions
+            odims = torch.range(0, x.shape[-1]-1).long().to(dims.device)
+            odims = (
+                1 - torch.eq(dims, odims[:, None])).prod(1).nonzero()[:, 0]
+            ODIMS[odims_id] = odims
+
         angles = x.index_select(-1, dims)
-        odims = torch.range(0, x.shape[-1]-1).long().to(dims.device)
-        odims = (
-            1 - torch.eq(dims, odims[:, None])).prod(1).nonzero()[:, 0]
         others = x.index_select(-1, odims)
+
         return torch.cat([others, angles.sin(), angles.cos()], -1)
 
 

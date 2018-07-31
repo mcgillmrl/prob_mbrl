@@ -110,9 +110,9 @@ def mc_pilco(init_states, forward, dynamics, policy, steps, opt=None, exp=None,
 
         # calculate loss. average over batch index, sum over time step index
         if maximize:
-            loss = -rewards.mean(1).mean(0)
+            loss = -rewards.sum(0).mean()
         else:
-            loss = rewards.mean(1).mean(0)
+            loss = rewards.sum(0).mean()
 
         if init_timestep == mpc*1:
             loss0 = loss
@@ -143,7 +143,7 @@ def mc_pilco(init_states, forward, dynamics, policy, steps, opt=None, exp=None,
                 x0 = torch.tensor(
                     exp.sample_states(N_particles)
                     ).to(dynamics.X.device).float()
-                x0 += 1e-2*init_states.std(0)*torch.randn_like(
+                x0 += 1e-1*init_states.std(0)*torch.randn_like(
                     x0)
             else:
                 x0 = init_states
