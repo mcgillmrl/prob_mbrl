@@ -47,7 +47,7 @@ def gaussian_mixture_log_likelihood(targets, means, log_stds, logit_pi):
         HALF_LOG_TWO_PI[device_id] = HALF_LOG_TWO_PI['default'].to(
             targets.device)
     # get deltas wrt each mixture component
-    deltas = means - targets[:, :, None]
+    deltas = means - targets.unsqueeze(-1)
 
     # weighted probabilities
     stds = log_stds.exp()
