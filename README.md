@@ -6,7 +6,7 @@ Implementation of Deep-PILCO and variants for probabilistic Model Based RL. This
 Install the Miniconda 3 distribution: https://conda.io/miniconda.html
 
     conda install pytorch cuda90 cudnn -c pytorch
-    conda install dill tqdm
+    conda install tqdm
  
  To run the mc-pilco cartpole examples, you'll need to also install the kusanagi library (https://github.com/mcgillmrl/kusanagi). We plan to remove this dependency in the future.
  
