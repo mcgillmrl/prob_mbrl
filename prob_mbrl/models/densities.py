@@ -84,17 +84,17 @@ class MixtureDensity(StochasticModule):
             if (logit_pi.shape != self.z_pi.shape) or resample_output_noise:
                 self.z_pi.data = -(-torch.rand_like(logit_pi).log()).log()
             z1 = self.z_pi
-            # replace this sampling operation 
+            # replace this sampling operation
             k = (log_softmax(logit_pi, -1) + z1).argmax(-1)
             k = k[:, None, None].repeat(1, mean.shape[-2], 1)
-            samples = mean.gather(-1, k).squeeze()
+            samples = mean.gather(-1, k).squeeze(-1)
             if output_noise:
                 if (mean[:-1].shape != self.z_pi.shape)\
                         or resample_output_noise:
                     self.z_normal.data = torch.randn(
                         *mean.shape[:-1], device=mean.device)
                 z2 = self.z_normal
-                samples = samples + z2*log_std.gather(-1, k).squeeze().exp()
+                samples = samples + z2*log_std.gather(-1, k).squeeze(-1).exp()
             return samples
         else:
             return mean, log_std, logit_pi
