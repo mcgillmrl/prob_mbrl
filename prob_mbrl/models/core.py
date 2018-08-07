@@ -12,7 +12,7 @@ def dropout_mlp(input_dims, output_dims, hidden_dims=[200, 200],
                     torch.nn.init.xavier_normal_,
                     gain=torch.nn.init.calculate_gain('relu')),
                 biases_initializer=partial(
-                    torch.nn.init.uniform_, a=-1.0, b=1.0),
+                    torch.nn.init.uniform_, a=-0.1, b=0.1),
                 dropout_layers=BDropout,
                 input_dropout=None):
     '''
