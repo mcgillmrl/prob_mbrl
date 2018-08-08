@@ -151,10 +151,10 @@ class Regressor(torch.nn.Module):
         self.register_buffer('angle_dims', torch.tensor(angle_dims).long())
         self.register_buffer('X', torch.ones([1, 1]))
         self.register_buffer('Y', torch.ones([1, 1]))
-        self.register_buffer('mx', torch.ones([1, 1]))
+        self.register_buffer('mx', torch.zeros([1, 1]))
         self.register_buffer('Sx', torch.ones([1, 1]))
         self.register_buffer('iSx', torch.ones([1, 1]))
-        self.register_buffer('my', torch.ones([1, 1]))
+        self.register_buffer('my', torch.zeros([1, 1]))
         self.register_buffer('Sy', torch.ones([1, 1]))
         self.register_buffer('iSy', torch.ones([1, 1]))
 
