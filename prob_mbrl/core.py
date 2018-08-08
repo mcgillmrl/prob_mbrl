@@ -1,9 +1,8 @@
-import tqdm
 import sys
 import torch
 from losses import gaussian_log_likelihood
 from utils import iterate_minibatches
-
+from tqdm import tqdm
 
 def custom_pbar(iterable, total):
     for i, item in enumerate(iterable):
@@ -17,7 +16,7 @@ def custom_pbar(iterable, total):
 
 def train_regressor(model, iters=2000, batchsize=100,
                     resample=True, optimizer=None,
-                    log_likelihood=gaussian_log_likelihood):
+                    log_likelihood=gaussian_log_likelihood, pbar_class=tqdm):
     X = (model.X - model.mx)*model.iSx
     Y = (model.Y - model.my)*model.iSy
     N = X.shape[0]
@@ -27,7 +26,7 @@ def train_regressor(model, iters=2000, batchsize=100,
         params = filter(lambda p: p.requires_grad, model.parameters())
         optimizer = torch.optim.Adam(params, 1e-4, amsgrad=True)
 
-    pbar = tqdm.tqdm(enumerate(iterate_minibatches(X, Y, M)), total=iters)
+    pbar = pbar_class(enumerate(iterate_minibatches(X, Y, M)), total=iters)
 
     for i, batch in pbar:
         x, y = batch
