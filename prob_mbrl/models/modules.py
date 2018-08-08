@@ -101,6 +101,30 @@ class CDropout(BDropout):
         )
 
 
+class TLNDropout(BDropout):
+    '''
+        'Implements truncated log-normal dropout (NIPS 2017)
+    '''
+    def __init__(self, interval=[-10, 0]):
+        self.register_buffer('interval', torch.tensor(interval))
+        self.logit_posterior_mean = Parameter(
+            -torch.log(1.0/torch.tensor(1 - self.rate) - 1.0))
+        self.logit_posterior_std = logit_posterior_std
+
+    def weights_regularizer(self, weights):
+        '''
+        In this case the weights regularizer is actually independent of the
+        weights (only depends on the alpha parameter)
+        '''
+        return 0
+    
+    def update_noise(self, x):
+        pass
+    
+    def forward(self, x):
+        pass
+
+
 class BSequential(nn.modules.Sequential):
     " An extension to sequential that allows for controlling resampling"
 
@@ -136,7 +160,8 @@ class BSequential(nn.modules.Sequential):
                         reg_loss += module.weights_regularizer(
                             next_module.weight)
                         if hasattr(next_module, 'bias')\
-                                and next_module.bias is not None:
+                                and next_module.bias is not None\
+                                and hasattr(module, 'biases_regularizer'):
                             reg_loss += module.biases_regularizer(
                                 next_module.bias)
                         break
