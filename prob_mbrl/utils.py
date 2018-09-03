@@ -34,7 +34,7 @@ def to_complex(x, dims=[]):
             odims = ODIMS[odims_id]
         else:
             # build indices for other dimensions
-            odims = torch.range(0, x.shape[-1]-1).long().to(dims.device)
+            odims = torch.arange(0, x.shape[-1]).long().to(dims.device)
             odims = (
                 1 - torch.eq(dims, odims[:, None])).prod(1).nonzero()[:, 0]
             ODIMS[odims_id] = odims

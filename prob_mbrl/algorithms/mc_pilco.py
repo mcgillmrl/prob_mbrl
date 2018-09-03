@@ -4,7 +4,7 @@ import tqdm
 
 def get_z_rnd(z, i, shape, device=None):
     if z is not None:
-        idxs = torch.range(i, i+shape[0]-1).to(device).long()
+        idxs = torch.arange(i, i+shape[0]).to(device).long()
         idxs %= shape[0]
         return z[idxs]
     else:
