@@ -25,23 +25,24 @@ def reward_fn(states, target, Q, angle_dims):
 
 
 # parameters
+n_rnd = 2
 H = 25
 N_particles = 100
 dyn_components = 4
 dyn_hidden = [200]*2
 pol_hidden = [50]*2
 use_cuda = False
+learn_reward = False
+target = torch.tensor([0, 0, 0, np.pi]).float()
+maxU = np.array([10.0])
+angle_dims = torch.tensor([3]).long()
 
 # initialize environment
 env = cartpole.Cartpole()
 
 # initialize reward/cost function
-target = torch.tensor([0, 0, 0, np.pi]).float()
 D = target.shape[-1]
 U = 1
-learn_reward = False
-maxU = np.array([10.0])
-angle_dims = torch.tensor([3]).long()
 target = utils.to_complex(target, angle_dims)
 Da = target.shape[-1]
 Q = torch.zeros(Da, Da).float()
@@ -96,7 +97,7 @@ opt2 = torch.optim.Adam(pol.parameters(), 1e-3)
 forward_fn = partial(forward, dynamics=dyn)
 
 # collect initial random experience
-for rand_it in range(1):
+for rand_it in range(n_rnd):
     ret = apply_controller(
         env, randpol, H,
         callback=None)  # lambda *args, **kwargs: env.render())
