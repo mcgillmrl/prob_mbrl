@@ -59,7 +59,7 @@ def gaussian_mixture_log_likelihood(targets, means, log_stds, logit_pi):
     log_probs = log_softmax(logit_pi, -1) + log_norm + dists
 
     # total log probability
-    return logsumexp(log_probs, keepdim=True)
+    return logsumexp(log_probs, dim=-1, keepdim=True)
 
 
 def quadratic_loss(states, target, Q):

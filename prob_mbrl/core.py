@@ -19,7 +19,7 @@ def train_regressor(model, iters=2000, batchsize=100,
                     log_likelihood=gaussian_log_likelihood, pbar_class=tqdm):
     X = (model.X - model.mx)*model.iSx
     Y = (model.Y - model.my)*model.iSy
-    N = X.shape[0]
+    N = torch.tensor(X).shape[0]
     M = batchsize
 
     if optimizer is None:
