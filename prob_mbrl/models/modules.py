@@ -18,24 +18,21 @@ class BDropout(StochasticModule):
         Gal and Ghahrahmani "Dropout as a Bayesian Approximation" (2015)
     """
 
-    def __init__(self, rate=0.5,
-                 name=None,
-                 regularizer_scale=1.0,
-                 **kwargs):
+    def __init__(self, rate=0.5, name=None, regularizer_scale=1.0, **kwargs):
         super(BDropout, self).__init__(**kwargs)
         self.name = name
-        self.register_buffer(
-            'regularizer_scale', torch.tensor(0.5*regularizer_scale**2))
+        self.register_buffer('regularizer_scale',
+                             torch.tensor(0.5 * regularizer_scale**2))
         self.register_buffer('rate', torch.tensor(rate))
         self.p = 1 - self.rate
         self.register_buffer('noise', torch.bernoulli(1.0 - self.rate))
 
     def weights_regularizer(self, weights):
         self.p = 1 - self.rate
-        return self.regularizer_scale*(self.p*(weights**2)).sum()
+        return self.regularizer_scale * (self.p * (weights**2)).sum()
 
     def biases_regularizer(self, biases):
-        return self.regularizer_scale*(biases**2).sum()
+        return self.regularizer_scale * (biases**2).sum()
 
     def resample(self):
         self.update_noise(self.noise)
@@ -50,65 +47,97 @@ class BDropout(StochasticModule):
             sample = x.view(-1, *sample_shape)[0]
             self.update_noise(sample)
         elif resample:
-            return x*torch.bernoulli(self.p.expand(x.shape))
-        return x*self.noise
+            return x * torch.bernoulli(self.p.expand(x.shape))
+
+        # we never need the noise gradients
+        return x * self.noise.detach()
 
     def extra_repr(self):
-        return 'rate={}, regularizer_scale={}'.format(
-            self.rate, self.regularizer_scale
-        )
+        return 'rate={}, regularizer_scale={}'.format(self.rate,
+                                                      self.regularizer_scale)
 
 
 class CDropout(BDropout):
-    def __init__(self, rate=0.5,
+    def __init__(self,
+                 rate=0.5,
                  name=None,
                  regularizer_scale=1.0,
                  temperature=0.1,
                  **kwargs):
-        super(CDropout, self).__init__(
-            rate, name, regularizer_scale, **kwargs)
+        super(CDropout, self).__init__(rate, name, regularizer_scale, **kwargs)
         self.register_buffer('temp', torch.tensor(temperature))
         self.logit_p = Parameter(
-            -torch.log(1.0/torch.tensor(1 - self.rate) - 1.0))
+            -torch.log(1.0 / torch.tensor(1 - self.rate) - 1.0))
+        self.concrete_noise = None
 
     def weights_regularizer(self, weights):
         p = self.logit_p.sigmoid()
-        reg = self.regularizer_scale*(p*(weights**2)).sum()
-        reg -= -p*p.log() - (1-p)*(1-p).log()
+        reg = self.regularizer_scale * (p * (weights**2)).sum()
+        reg -= -p * p.log() - (1 - p) * (1 - p).log()
         return reg
 
     def update_noise(self, x):
         self.noise.data = torch.rand_like(x)
 
-    def forward(self, x, resample=True, mask_dims=2, **kwargs):
+    def update_concrete_noise(self, noise):
+        """Updates the concrete dropout masks.
+
+        Args:
+            noise (Tensor): Input.
+        """
+        self.p.data = self.logit_p.sigmoid()
+        concrete_p = self.logit_p + noise.log() - (1 - noise).log()
+        self.concrete_noise = (concrete_p / self.temp).sigmoid()
+
+    def forward(self, x, resample=False, mask_dims=2, **kwargs):
+        """Computes the concrete dropout.
+
+        Args:
+            x (Tensor): Input.
+            resample (bool): Whether to force resample.
+            mask_dims (int): Number of dimensions to sample noise for
+                (0 for all).
+
+        Returns:
+            Output (Tensor).
+        """
         sample_shape = x.shape[-mask_dims:]
         noise = self.noise
-        if sample_shape != self.noise.shape:
+        resampled = False
+        if resample:
+            noise = torch.rand_like(x)
+            resampled = True
+        elif (self.concrete_noise is None
+              or sample_shape != self.concrete_noise.shape):
             sample = x.view(-1, *sample_shape)[0]
             self.update_noise(sample)
             noise = self.noise
-        elif resample:
-            noise = torch.rand_like(x)
+            resampled = True
 
-        concrete_p = self.logit_p + noise.log() - (1 - noise).log()
-        concrete_noise = (concrete_p/self.temp).sigmoid()
-
-        return x*concrete_noise
+        if self.training:
+            self.update_concrete_noise(noise)
+            concrete_noise = self.concrete_noise
+        else:
+            if resampled:
+                self.update_concrete_noise(noise)
+            # We never need these gradients in evaluation mode.
+            concrete_noise = self.concrete_noise.detach()
+        return x * concrete_noise
 
     def extra_repr(self):
         return 'rate={}, temperature={}, regularizer_scale={}'.format(
-            1-self.logit_p.sigmoid(), self.temp, self.regularizer_scale
-        )
+            1 - self.logit_p.sigmoid(), self.temp, self.regularizer_scale)
 
 
 class TLNDropout(BDropout):
     '''
         'Implements truncated log-normal dropout (NIPS 2017)
     '''
+
     def __init__(self, interval=[-10, 0]):
         self.register_buffer('interval', torch.tensor(interval))
         self.logit_posterior_mean = Parameter(
-            -torch.log(1.0/torch.tensor(1 - self.rate) - 1.0))
+            -torch.log(1.0 / torch.tensor(1 - self.rate) - 1.0))
         self.logit_posterior_std = logit_posterior_std
 
     def weights_regularizer(self, weights):
@@ -117,10 +146,10 @@ class TLNDropout(BDropout):
         weights (only depends on the alpha parameter)
         '''
         return 0
-    
+
     def update_noise(self, x):
         pass
-    
+
     def forward(self, x):
         pass
 
@@ -140,7 +169,9 @@ class BSequential(nn.modules.Sequential):
         for module in self._modules.values():
             if isinstance(module, StochasticModule):
                 input = module(
-                    input, resample=resample, repeat_mask=repeat_mask,
+                    input,
+                    resample=resample,
+                    repeat_mask=repeat_mask,
                     **kwargs)
             else:
                 input = module(input)
@@ -209,7 +240,7 @@ class Regressor(torch.nn.Module):
             x = to_complex(x, self.angle_dims)
         # scale and center inputs
         if normalize:
-            x = (x - self.mx)*self.iSx
+            x = (x - self.mx) * self.iSx
         outs = self.model(x, **kwargs)
         if callable(self.output_density):
             scaling_params = (self.my, self.Sy) if normalize else None
@@ -237,7 +268,7 @@ class Policy(torch.nn.Module):
             x = torch.tensor(
                 x, dtype=self.scale.dtype, device=self.scale.device)
         x = to_complex(x, self.angle_dims)
-        u = self.scale*self.model(x, **kwargs) + self.bias
+        u = self.scale * self.model(x, **kwargs) + self.bias
         if return_numpy:
             return u.detach().cpu().numpy()
         else:
@@ -253,7 +284,7 @@ class DynamicsModel(Regressor):
 
     def set_dataset(self, X, Y):
         super(DynamicsModel, self).set_dataset(X, Y)
-        D = self.Y.shape[-1]-1
+        D = self.Y.shape[-1] - 1
         R = self.Y.index_select(-1, torch.tensor(D, device=self.Y.device))
         self.maxR.data = R.max()
         self.minR.data = R.min()
@@ -265,8 +296,7 @@ class DynamicsModel(Regressor):
             inputs = torch.cat([prev_states, actions], -1)
 
         # forward pass on model
-        outs = super(DynamicsModel, self).forward(
-            inputs, **kwargs)
+        outs = super(DynamicsModel, self).forward(inputs, **kwargs)
         if isinstance(outs, tuple):
             return outs
         if callable(self.reward_func):

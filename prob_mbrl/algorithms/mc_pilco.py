@@ -122,6 +122,8 @@ def mc_pilco(init_states,
     x0 = init_states
     states = [init_states] * 2
     sample_idx = torch.tensor(1).random_(0, x0.shape[0])
+    dynamics.eval()
+    policy.train()
     policy.zero_grad()
     dynamics.zero_grad()
 
