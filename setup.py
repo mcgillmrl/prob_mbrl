@@ -12,6 +12,8 @@ setup(
     author_email='juancamilog@gmail.com',
     license='MIT',
     packages=find_packages(),
-    install_requires=['torch==0.4.1', 'gym', 'numpy', 'scipy', 'matplotlib',
-                      'dill', 'tensorboardX'],
-    )
+    install_requires=[
+        'torch>=0.4.1', 'gym', 'numpy', 'scipy', 'matplotlib', 'dill',
+        'tensorboardX'
+    ],
+)
