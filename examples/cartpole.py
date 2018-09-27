@@ -14,15 +14,6 @@ torch.set_flush_denormal(True)
 torch.set_num_threads(4)
 
 
-def forward(states, actions, dynamics, **kwargs):
-    deltas, rewards = dynamics(
-        (states, actions),
-        return_samples=True,
-        separate_outputs=True,
-        **kwargs)
-    return states + deltas, rewards
-
-
 def reward_fn(states, target, Q, angle_dims):
     states = utils.to_complex(states, angle_dims)
     return -losses.quadratic_saturating_loss(states, target, Q)
@@ -104,9 +95,6 @@ if __name__ == '__main__':
     # initialize policy optimizer
     opt2 = torch.optim.Adam(pol.parameters(), 1e-3)
 
-    # define functions required for rollouts
-    forward_fn = partial(forward, dynamics=dyn)
-
     # collect initial random experience
     for rand_it in range(n_rnd):
         ret = apply_controller(
@@ -157,13 +145,12 @@ if __name__ == '__main__':
         x0 = torch.tensor(exp.sample_states(N_particles, timestep=0)).to(
             dyn.X.device).float()
         x0 += 1e-1 * x0.std(0) * torch.randn_like(x0)
-        utils.plot_rollout(x0, forward_fn, pol, H)
+        utils.plot_rollout(x0, dyn, pol, H)
 
         # train policy
         print "Policy search iteration %d" % (ps_it + 1)
         algorithms.mc_pilco(
             x0,
-            forward_fn,
             dyn,
             pol,
             H,
@@ -178,7 +165,7 @@ if __name__ == '__main__':
             mpc=False,
             max_steps=25,
             on_iteration=on_iteration)
-        utils.plot_rollout(x0, forward_fn, pol, H)
+        utils.plot_rollout(x0, dyn, pol, H)
 
         # apply policy
         ret = apply_controller(env, pol, H, callback=None)

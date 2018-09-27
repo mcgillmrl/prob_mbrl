@@ -289,7 +289,7 @@ class DynamicsModel(Regressor):
         self.maxR.data = R.max()
         self.minR.data = R.min()
 
-    def forward(self, inputs, separate_outputs=False, **kwargs):
+    def forward(self, inputs, separate_outputs=False, deltas=True, **kwargs):
         inputs_as_tuple = isinstance(inputs, tuple) or isinstance(inputs, list)
         if inputs_as_tuple:
             prev_states, actions = inputs[0], inputs[1]
@@ -297,21 +297,31 @@ class DynamicsModel(Regressor):
 
         # forward pass on model
         outs = super(DynamicsModel, self).forward(inputs, **kwargs)
+
+        # if not returning samples, outs will be a tuple consisting of the
+        # parameters of the output distribution
         if isinstance(outs, tuple):
             return outs
+
+        # if we are returning samples, the output will be a tensor whose last
+        # dimension is of size D+1, when the reward function is being learned,
+        # or of size D, when an external reward function is available.
+        if not inputs_as_tuple:
+            D = outs.shape[-1]
+            prev_states, actions = inputs.split(D, -1)
+
         if callable(self.reward_func):
             # if we have a known reward function
-            states = outs
-            if not inputs_as_tuple:
-                D = outs.shape[-1]
-                prev_states, actions = inputs.split(D, -1)
+            dstates = outs
             rewards = self.reward_func(prev_states)
         else:
             D = outs.shape[-1] - 1
             # assume rewards come from the last dimension of the output
-            states, rewards = outs.split(D, -1)
-            # constrain rewards
-            # rewards = (self.maxR - self.minR)*rewards.sigmoid() + self.minR
+            dstates, rewards = outs.split(D, -1)
+
+        states = dstates if deltas else prev_states + dstates
+
         if separate_outputs:
             return states, rewards
+
         return torch.cat([states, rewards], -1)

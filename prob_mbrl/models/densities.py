@@ -10,6 +10,7 @@ class DiagGaussianDensity(StochasticModule):
         Rearranges the incoming dimensions to correspond to the parameters
         of a Gaussian Density distribution.
     '''
+
     def __init__(self, output_dims):
         super(DiagGaussianDensity, self).__init__()
         self.output_dims = output_dims
@@ -18,8 +19,13 @@ class DiagGaussianDensity(StochasticModule):
     def resample(self, *args, **kwargs):
         self.z.data = torch.randn_like(self.z)
 
-    def forward(self, x, scaling_params=None, return_samples=False,
-                output_noise=True, resample_output_noise=True, **kwargs):
+    def forward(self,
+                x,
+                scaling_params=None,
+                return_samples=False,
+                output_noise=True,
+                resample_output_noise=True,
+                **kwargs):
         D = self.output_dims
         mean, log_std = x.split(D, -1)
 
@@ -29,7 +35,7 @@ class DiagGaussianDensity(StochasticModule):
                 my = scaling_params[0]
                 Sy = scaling_params[1]
                 log_std = log_std + Sy.log()
-                mean = mean*Sy + my
+                mean = mean * Sy + my
             else:
                 warnings.warn(
                     "Expected scaling_params as tuple or list with 2 elements")
@@ -39,7 +45,7 @@ class DiagGaussianDensity(StochasticModule):
                 if (mean.shape != self.z.shape) or resample_output_noise:
                     self.z.data = torch.randn_like(mean)
                 z = self.z
-                samples = samples + z*log_std.exp()
+                samples = samples + z * log_std.exp()
             return samples
         else:
             return mean, log_std
@@ -50,6 +56,7 @@ class MixtureDensity(StochasticModule):
      Mixture of Gaussian Densities Network model. The components have diagonal
      covariance.
     '''
+
     def __init__(self, output_dims, n_components, **kwargs):
         super(MixtureDensity, self).__init__(**kwargs)
         self.n_components = n_components
@@ -61,10 +68,15 @@ class MixtureDensity(StochasticModule):
         self.z_pi.data = torch.rand_like(self.z_pi)
         self.z_normal.data = torch.randn_like(self.z_normal)
 
-    def forward(self, x, scaling_params=None, return_samples=False,
-                output_noise=True, resample_output_noise=True, **kwargs):
+    def forward(self,
+                x,
+                scaling_params=None,
+                return_samples=False,
+                output_noise=True,
+                resample_output_noise=True,
+                **kwargs):
         D = self.output_dims
-        nD = D*self.n_components
+        nD = D * self.n_components
         # the output shape is [batch_size, output_dimensions, n_components]
         mean, log_std, logit_pi = x.split(nD, -1)
         mean = mean.view(-1, D, self.n_components)
@@ -76,7 +88,7 @@ class MixtureDensity(StochasticModule):
                 my = scaling_params[0].unsqueeze(-1)
                 Sy = scaling_params[1].unsqueeze(-1)
                 log_std = log_std + Sy.log()
-                mean = mean*Sy + my
+                mean = mean * Sy + my
             else:
                 warnings.warn(
                     "Expected scaling_params as tuple or list with 2 elements")
@@ -94,7 +106,8 @@ class MixtureDensity(StochasticModule):
                     self.z_normal.data = torch.randn(
                         *mean.shape[:-1], device=mean.device)
                 z2 = self.z_normal
-                samples = samples + z2*log_std.gather(-1, k).squeeze(-1).exp()
+                samples = samples + z2 * log_std.gather(-1,
+                                                        k).squeeze(-1).exp()
             return samples
         else:
             return mean, log_std, logit_pi

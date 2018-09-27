@@ -12,7 +12,7 @@ def get_z_rnd(z, i, shape, device=None):
 
 
 def rollout(states,
-            forward,
+            dynamics,
             policy,
             steps,
             resample_model=False,
@@ -43,10 +43,12 @@ def rollout(states,
             resample_output_noise=resample_action_noise)
 
         # propagate state particles (and obtain rewards)
-        next_states, rewards = forward(
-            states,
-            actions,
-            output_noise=False,
+        next_states, rewards = dynamics(
+            (states, actions),
+            output_noise=True,
+            return_samples=True,
+            separate_outputs=True,
+            deltas=False,
             resample=resample_model,
             resample_output_noise=resample_state_noise)
 
@@ -84,7 +86,6 @@ def rollout(states,
 
 
 def mc_pilco(init_states,
-             forward,
              dynamics,
              policy,
              steps,
@@ -143,7 +144,7 @@ def mc_pilco(init_states,
         H = max_steps if mpc and init_timestep != 1 else steps
         trajs = rollout(
             x0,
-            forward,
+            dynamics,
             policy,
             H,
             resample_model_noise=not pegasus,
