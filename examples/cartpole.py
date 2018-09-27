@@ -69,7 +69,7 @@ if __name__ == '__main__':
         Da + U, (dynE + 1) * dyn_components,
         dyn_hidden,
         dropout_layers=[
-            models.modules.CDropout(0.5, 0.1) for i in range(len(dyn_hidden))
+            models.modules.CDropout(0.1, 0.1) for i in range(len(dyn_hidden))
         ],
         nonlin=torch.nn.ReLU)
     dyn = models.DynamicsModel(
@@ -119,6 +119,7 @@ if __name__ == '__main__':
         pol = pol.cuda()
 
     writer = tensorboardX.SummaryWriter()
+    writer.add_scalar('robot/evaluation_loss', torch.tensor(ret[2]).sum(), 0)
 
     def on_close():
         writer.close()
@@ -183,4 +184,4 @@ if __name__ == '__main__':
         ret = apply_controller(env, pol, H, callback=None)
         exp.append_episode(*ret)
         writer.add_scalar('robot/evaluation_loss',
-                          torch.tensor(ret[2]).sum(), i)
+                          torch.tensor(ret[2]).sum(), ps_it + 1)
