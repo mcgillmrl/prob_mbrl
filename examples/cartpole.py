@@ -26,7 +26,7 @@ if __name__ == '__main__':
     N_particles = 100
     dyn_components = 4
     dyn_hidden = [200] * 2
-    pol_hidden = [50] * 2
+    pol_hidden = [200] * 2
     use_cuda = False
     learn_reward = False
     target = torch.tensor([0, 0, 0, np.pi]).float()
@@ -34,7 +34,7 @@ if __name__ == '__main__':
     angle_dims = torch.tensor([3]).long()
 
     # initialize environment
-    env = cartpole.Cartpole(friction=1.0)
+    env = cartpole.Cartpole()
 
     # initialize reward/cost function
     D = target.shape[-1]
@@ -78,7 +78,7 @@ if __name__ == '__main__':
         dropout_layers=[
             models.modules.BDropout(0.1) for i in range(len(pol_hidden))
         ],
-        nonlin=torch.nn.Tanh,
+        nonlin=torch.nn.ReLU,
         weights_initializer=torch.nn.init.xavier_normal_,
         biases_initializer=None,
         output_nonlin=torch.nn.Tanh)
@@ -159,11 +159,9 @@ if __name__ == '__main__':
             1000,
             pegasus=True,
             mm_states=True,
-            mm_rewards=False,
+            mm_rewards=True,
             maximize=True,
             clip_grad=1.0,
-            mpc=False,
-            max_steps=25,
             on_iteration=on_iteration)
         utils.plot_rollout(x0, dyn, pol, H)
 
