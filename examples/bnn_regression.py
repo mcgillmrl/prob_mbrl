@@ -11,7 +11,7 @@ torch.set_num_threads(2)
 
 def gaussian_sample(mu, log_sigma):
     z2 = np.random.randn(*mu.shape)
-    return mu + z2*np.exp(log_sigma)
+    return mu + z2 * np.exp(log_sigma)
 
 
 def mixture_sample(mu, log_sigma, logit_pi, colors=None, noise=True):
@@ -21,7 +21,7 @@ def mixture_sample(mu, log_sigma, logit_pi, colors=None, noise=True):
     samples = mu[idx, k]
     if noise:
         z2 = np.random.randn(*mu.shape[:-1])
-        samples += z2*np.exp(log_sigma[idx, k])
+        samples += z2 * np.exp(log_sigma[idx, k])
 
     if colors is not None:
         return samples, colors[k]
@@ -32,7 +32,10 @@ def f(x, multimodal=False):
     c = 100
     if multimodal:
         c *= np.random.choice([-1, 1], x.shape[0])
-    return c*sum([np.sin(-2*np.pi*(2*k-1)*x)/(2*k-1) for k in range(1, 3)])
+    return c * sum([
+        np.sin(-2 * np.pi * (2 * k - 1) * x) / (2 * k - 1)
+        for k in range(1, 3)
+    ])
 
 
 # model parameters
@@ -46,28 +49,33 @@ use_cuda = True
 
 # single gaussian output model
 model = models.Regressor(
-    models.dropout_mlp(
-        1, 2*odims, [layer_width]*n_layers,
+    models.mlp(
+        1,
+        2 * odims, [layer_width] * n_layers,
         nonlin=torch.nn.ReLU,
-        weights_initializer=partial(torch.nn.init.xavier_normal_,
-                                    gain=torch.nn.init.calculate_gain('relu')),
+        weights_initializer=partial(
+            torch.nn.init.xavier_normal_,
+            gain=torch.nn.init.calculate_gain('relu')),
         biases_initializer=partial(torch.nn.init.uniform_, a=-1.0, b=1.0),
-        dropout_layers=[models.CDropout(drop_rate, temperature=.1)
-                        for i in range(n_layers)]),
+        dropout_layers=[
+            models.CDropout(drop_rate, temperature=.1) for i in range(n_layers)
+        ]),
     output_density=models.DiagGaussianDensity(odims))
 
 # mixture density network
 mmodel = models.Regressor(
-    models.dropout_mlp(
-        1, 2*n_components*odims + n_components, [layer_width]*n_layers,
+    models.mlp(
+        1,
+        2 * n_components * odims + n_components, [layer_width] * n_layers,
         nonlin=torch.nn.ReLU,
-        weights_initializer=partial(torch.nn.init.xavier_normal_,
-                                    gain=torch.nn.init.calculate_gain('relu')),
+        weights_initializer=partial(
+            torch.nn.init.xavier_normal_,
+            gain=torch.nn.init.calculate_gain('relu')),
         biases_initializer=partial(torch.nn.init.uniform_, a=-1.0, b=1.0),
-        dropout_layers=[models.CDropout(drop_rate, temperature=.1)
-                        for i in range(n_layers)]),
+        dropout_layers=[
+            models.CDropout(drop_rate, temperature=.1) for i in range(n_layers)
+        ]),
     output_density=models.MixtureDensity(odims, n_components))
-
 
 # optimizer for single gaussian model
 opt1 = torch.optim.Adam(model.parameters(), 1e-3, amsgrad=True)
@@ -76,11 +84,13 @@ opt1 = torch.optim.Adam(model.parameters(), 1e-3, amsgrad=True)
 opt2 = torch.optim.Adam(mmodel.parameters(), 1e-3, amsgrad=True)
 
 # create training dataset
-train_x = np.concatenate([np.arange(-0.6, -0.25, 0.01),
-                          np.arange(0.1, 0.25, 0.01),
-                          np.arange(0.65, 1.0, 0.01)])
+train_x = np.concatenate([
+    np.arange(-0.6, -0.25, 0.01),
+    np.arange(0.1, 0.25, 0.01),
+    np.arange(0.65, 1.0, 0.01)
+])
 train_y = f(train_x)
-train_y += 0.01*np.random.randn(*train_y.shape)
+train_y += 0.01 * np.random.randn(*train_y.shape)
 X = torch.from_numpy(train_x[:, None]).float()
 Y = torch.from_numpy(train_y[:, None]).float()
 
@@ -101,7 +111,11 @@ print(('Dataset size:', train_x.shape[0], 'samples'))
 train_regressor(
     model, iters=4000, batchsize=N_ensemble, resample=True, optimizer=opt1)
 train_regressor(
-    mmodel, iters=4000, batchsize=N_ensemble, resample=True, optimizer=opt2,
+    mmodel,
+    iters=4000,
+    batchsize=N_ensemble,
+    resample=True,
+    optimizer=opt2,
     log_likelihood=losses.gaussian_mixture_log_likelihood)
 
 # evaluate single gaussian model
@@ -126,7 +140,7 @@ for i in range(len(ret)):
     m, logS = ret[i, :, 0], ret[i, :, 1]
     samples = gaussian_sample(m, logS)
     plt.scatter(test_x, m, c=colors[0], s=1)
-    plt.scatter(test_x, samples, c=colors[0]*0.5, s=1)
+    plt.scatter(test_x, samples, c=colors[0] * 0.5, s=1)
 plt.plot(test_x, f(test_x), linestyle='--', label='true function')
 plt.scatter(X.cpu().numpy().flatten(), Y.cpu().numpy().flatten())
 plt.xlabel('$x$', fontsize=18)
@@ -161,7 +175,7 @@ total_samples = []
 for i in range(len(ret)):
     m, logS = ret[i, :, 0, :], ret[i, :, 1, :]
     samples, c = mixture_sample(m, logS, logit_weights[i], colors)
-    plt.scatter(test_x, samples, c=c*0.5, s=1)
+    plt.scatter(test_x, samples, c=c * 0.5, s=1)
     samples, c = mixture_sample(m, logS, logit_weights[i], colors, noise=False)
     plt.scatter(test_x, samples, c=c, s=1)
     total_samples.append(samples)

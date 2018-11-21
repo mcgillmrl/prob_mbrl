@@ -12,7 +12,7 @@ if __name__ == '__main__':
     n_rnd = 4
     H = 25
     N_particles = 100
-    dyn_components = 1
+    dyn_components = 2
     dyn_hidden = [200] * 2
     pol_hidden = [200] * 2
     use_cuda = True
@@ -41,7 +41,7 @@ if __name__ == '__main__':
         output_density = models.DiagGaussianDensity(dynE / 2)
         log_likelihood_loss = losses.gaussian_log_likelihood
 
-    dyn_model = models.dropout_mlp(
+    dyn_model = models.mlp(
         D + U,
         dynE,
         dyn_hidden,
@@ -54,7 +54,7 @@ if __name__ == '__main__':
         output_density=output_density).float()
 
     # initalize policy
-    pol_model = models.dropout_mlp(
+    pol_model = models.mlp(
         D,
         U,
         pol_hidden,
