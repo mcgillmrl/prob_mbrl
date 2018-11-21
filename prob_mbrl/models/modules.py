@@ -4,7 +4,7 @@ import torch
 from torch import nn
 from torch.nn import Parameter
 
-from ..utils import to_complex
+from ..utils.angles import to_complex
 
 
 class StochasticModule(torch.nn.Module):
@@ -138,7 +138,7 @@ class TLNDropout(BDropout):
         self.register_buffer('interval', torch.tensor(interval))
         self.logit_posterior_mean = Parameter(
             -torch.log(1.0 / torch.tensor(1 - self.rate) - 1.0))
-        self.logit_posterior_std = logit_posterior_std
+        # self.logit_posterior_std = logit_posterior_std
 
     def weights_regularizer(self, weights):
         '''
@@ -313,7 +313,7 @@ class DynamicsModel(Regressor):
         if callable(self.reward_func):
             # if we have a known reward function
             dstates = outs
-            rewards = self.reward_func(prev_states)
+            rewards = self.reward_func(prev_states, actions)
         else:
             D = outs.shape[-1] - 1
             # assume rewards come from the last dimension of the output

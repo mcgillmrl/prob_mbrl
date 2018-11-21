@@ -3,76 +3,59 @@ import numpy as np
 import torch
 import tensorboardX
 
-from functools import partial
-
-from kusanagi.shell import cartpole
-from kusanagi.base import ExperienceDataset, apply_controller
-from kusanagi.ghost.control import RandPolicy
-
-from prob_mbrl import utils, models, algorithms, losses, train_regressor
+from prob_mbrl import utils, models, algorithms, losses, train_regressor, envs
 torch.set_flush_denormal(True)
-torch.set_num_threads(4)
-
-
-def reward_fn(states, target, Q, angle_dims):
-    states = utils.to_complex(states, angle_dims)
-    return -losses.quadratic_saturating_loss(states, target, Q)
-
+torch.set_num_threads(2)
 
 if __name__ == '__main__':
     # parameters
-    n_rnd = 1
+    n_rnd = 4
     H = 25
     N_particles = 100
-    dyn_components = 4
+    dyn_components = 1
     dyn_hidden = [200] * 2
     pol_hidden = [200] * 2
-    use_cuda = False
+    use_cuda = True
     learn_reward = False
-    target = torch.tensor([0, 0, 0, np.pi]).float()
-    maxU = np.array([10.0])
-    angle_dims = torch.tensor([3]).long()
 
     # initialize environment
-    env = cartpole.Cartpole()
+    env = envs.Cartpole()
+    env.dt = env.model.dt
+    D = env.observation_space.shape[0]
+    U = env.action_space.shape[0]
+    maxU = env.action_space.high
 
     # initialize reward/cost function
-    D = target.shape[-1]
-    U = 1
-    target = utils.to_complex(target, angle_dims)
-    Da = target.shape[-1]
-    Q = torch.zeros(Da, Da).float()
-    Q[0, 0] = 1
-    Q[0, -2] = env.l
-    Q[-2, 0] = env.l
-    Q[-2, -2] = env.l**2
-    Q[-1, -1] = env.l**2
-    Q /= 0.1
-    if learn_reward:
+    if learn_reward or env.reward_func == None:
         reward_func = None
     else:
-        reward_func = partial(
-            reward_fn, target=target, Q=Q, angle_dims=angle_dims)
+        reward_func = env.reward_func
 
     # initialize dynamics model
     dynE = 2 * (D + 1) if learn_reward else 2 * D
+    if dyn_components > 1:
+        output_density = models.MixtureDensity(dynE / 2, dyn_components)
+        dynE = (dynE + 1) * dyn_components
+        log_likelihood_loss = losses.gaussian_mixture_log_likelihood
+    else:
+        output_density = models.DiagGaussianDensity(dynE / 2)
+        log_likelihood_loss = losses.gaussian_log_likelihood
+
     dyn_model = models.dropout_mlp(
-        Da + U, (dynE + 1) * dyn_components,
+        D + U,
+        dynE,
         dyn_hidden,
         dropout_layers=[
-            models.modules.CDropout(0.1, 0.1) for i in range(len(dyn_hidden))
+            models.modules.CDropout(0.5, 0.1) for i in range(len(dyn_hidden))
         ],
         nonlin=torch.nn.ReLU)
     dyn = models.DynamicsModel(
-        dyn_model,
-        reward_func=reward_func,
-        angle_dims=angle_dims,
-        output_density=models.MixtureDensity(dynE / 2,
-                                             dyn_components)).float()
+        dyn_model, reward_func=reward_func,
+        output_density=output_density).float()
 
     # initalize policy
     pol_model = models.dropout_mlp(
-        Da,
+        D,
         U,
         pol_hidden,
         dropout_layers=[
@@ -83,39 +66,44 @@ if __name__ == '__main__':
         biases_initializer=None,
         output_nonlin=torch.nn.Tanh)
 
-    pol = models.Policy(pol_model, maxU, angle_dims=angle_dims).float()
-    randpol = RandPolicy(maxU)
+    pol = models.Policy(pol_model, maxU).float()
 
     # initalize experience dataset
-    exp = ExperienceDataset()
+    exp = utils.ExperienceDataset()
 
     # initialize dynamics optimizer
-    opt1 = torch.optim.Adam(dyn.parameters(), 1e-4)
+    opt1 = torch.optim.Adam(dyn.parameters(), 1e-3)
 
     # initialize policy optimizer
     opt2 = torch.optim.Adam(pol.parameters(), 1e-3)
-
-    # collect initial random experience
-    for rand_it in range(n_rnd):
-        ret = apply_controller(
-            env, randpol, H,
-            callback=None)  # lambda *args, **kwargs: env.render())
-        exp.append_episode(*ret)
 
     if use_cuda and torch.cuda.is_available():
         dyn = dyn.cuda()
         pol = pol.cuda()
 
     writer = tensorboardX.SummaryWriter()
-    writer.add_scalar('robot/evaluation_loss', torch.tensor(ret[2]).sum(), 0)
 
+    # callbacks
     def on_close():
         writer.close()
 
     atexit.register(on_close)
 
     # policy learning loop
-    for ps_it in range(100):
+    for it in range(100 + n_rnd):
+        if it < n_rnd:
+            pol_ = lambda x, t: maxU * (2 * np.random.rand(U, ) - 1)
+        else:
+            pol_ = pol
+
+        # apply policy
+        ret = utils.apply_controller(
+            env, pol_, H, callback=lambda *args, **kwargs: env.render())
+        exp.append_episode(*ret)
+
+        if it < n_rnd - 1:
+            continue
+        ps_it = it - n_rnd + 1
 
         def on_iteration(i, loss, states, actions, rewards, opt, policy,
                          dynamics):
@@ -139,7 +127,7 @@ if __name__ == '__main__':
             N_particles,
             True,
             opt1,
-            log_likelihood=losses.gaussian_mixture_log_likelihood)
+            log_likelihood=log_likelihood_loss)
 
         # sample initial states for policy optimization
         x0 = torch.tensor(exp.sample_states(N_particles, timestep=0)).to(
@@ -159,14 +147,9 @@ if __name__ == '__main__':
             1000,
             pegasus=True,
             mm_states=True,
-            mm_rewards=True,
+            mm_rewards=False,
             maximize=True,
-            clip_grad=1.0,
-            on_iteration=on_iteration)
+            clip_grad=1.0)
         utils.plot_rollout(x0, dyn, pol, H)
-
-        # apply policy
-        ret = apply_controller(env, pol, H, callback=None)
-        exp.append_episode(*ret)
         writer.add_scalar('robot/evaluation_loss',
                           torch.tensor(ret[2]).sum(), ps_it + 1)

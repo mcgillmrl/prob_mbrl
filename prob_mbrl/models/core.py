@@ -5,22 +5,24 @@ from collections import OrderedDict, Iterable
 from functools import partial
 
 
-def dropout_mlp(input_dims, output_dims, hidden_dims=[200, 200],
+def dropout_mlp(input_dims,
+                output_dims,
+                hidden_dims=[200, 200],
                 nonlin=torch.nn.ReLU,
                 output_nonlin=None,
                 weights_initializer=partial(
                     torch.nn.init.xavier_normal_,
                     gain=torch.nn.init.calculate_gain('relu')),
                 biases_initializer=partial(
-                    torch.nn.init.uniform_, a=-0.1, b=0.1),
+                    torch.nn.init.uniform_, a=-0.01, b=0.01),
                 dropout_layers=BDropout,
                 input_dropout=None):
     '''
         Utility function for creating multilayer perceptrons of varying depth.
     '''
-    dims = [input_dims]+hidden_dims
+    dims = [input_dims] + hidden_dims
     if not isinstance(dropout_layers, Iterable):
-        dropout_layers = [dropout_layers]*(len(hidden_dims))
+        dropout_layers = [dropout_layers] * (len(hidden_dims))
 
     modules = OrderedDict()
     # add input dropout
@@ -53,13 +55,17 @@ def dropout_mlp(input_dims, output_dims, hidden_dims=[200, 200],
 
     # initialize weights
     if callable(weights_initializer):
+
         def fn(module):
             if hasattr(module, 'weight'):
                 weights_initializer(module.weight)
+
         net.apply(fn)
     if callable(biases_initializer):
+
         def fn(module):
             if hasattr(module, 'bias') and module.bias is not None:
                 biases_initializer(module.bias)
+
         net.apply(fn)
     return net
