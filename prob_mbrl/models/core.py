@@ -187,7 +187,7 @@ class DynamicsModel(Regressor):
         if callable(self.reward_func):
             # if we have a known reward function
             dstates = outs
-            rewards = self.reward_func(prev_states, actions)
+            rewards = self.reward_func(prev_states + dstates, actions)
         else:
             D = outs.shape[-1] - 1
             # assume rewards come from the last dimension of the output

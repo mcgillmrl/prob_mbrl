@@ -15,7 +15,7 @@ if __name__ == '__main__':
     dyn_components = 2
     dyn_hidden = [200] * 2
     pol_hidden = [200] * 2
-    use_cuda = True
+    use_cuda = False
     learn_reward = False
 
     # initialize environment

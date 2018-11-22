@@ -30,7 +30,7 @@ class CartpoleModel(DynamicsModel):
         theta: 0 is pointing up and increasing clockwise.
     """
 
-    def __init__(self, dt=0.1, mc=0.5, mp=0.5, l=0.5, mu=0.1, g=9.82):
+    def __init__(self, dt=0.1, mc=0.5, mp=0.5, lp=0.5, mu=0.1, g=9.82):
         """Constructs a CartpoleModel.
 
         Args:
@@ -43,11 +43,11 @@ class CartpoleModel(DynamicsModel):
         """
         super(CartpoleModel, self).__init__()
         self.dt = Parameter(torch.tensor(dt), requires_grad=False)
-        self.mc = Parameter(torch.tensor(mc), requires_grad=True)
-        self.mp = Parameter(torch.tensor(mp), requires_grad=True)
-        self.l = Parameter(torch.tensor(l), requires_grad=True)
-        self.mu = Parameter(torch.tensor(mu), requires_grad=True)
-        self.g = Parameter(torch.tensor(g), requires_grad=True)
+        self.mc = Parameter(torch.tensor(mc), requires_grad=False)
+        self.mp = Parameter(torch.tensor(mp), requires_grad=False)
+        self.lp = Parameter(torch.tensor(lp), requires_grad=False)
+        self.mu = Parameter(torch.tensor(mu), requires_grad=False)
+        self.g = Parameter(torch.tensor(g), requires_grad=False)
 
     @classproperty
     def action_size(cls):
@@ -94,7 +94,7 @@ class CartpoleModel(DynamicsModel):
         """
         mc = self.mc
         mp = self.mp
-        l = self.l
+        lp = self.lp
         mu = self.mu
         g = self.g
 
@@ -106,14 +106,14 @@ class CartpoleModel(DynamicsModel):
         sin_theta = theta.sin()
         cos_theta = theta.cos()
 
-        a0 = mp * l * theta_dot**2 * sin_theta
+        a0 = mp * lp * theta_dot**2 * sin_theta
         a1 = g * sin_theta
         a2 = F - mu * x_dot
         a3 = 4 * (mc + mp) - 3 * mp * cos_theta**2
 
         theta_dot_dot = -3 * (a0 * cos_theta + 2 * (
-            (mc + mp) * a1 + a2 * cos_theta)) / (l * a3)
+            (mc + mp) * a1 + a2 * cos_theta)) / (lp * a3)
         x_dot_dot = (2 * a0 + 3 * mp * a1 * cos_theta + 4 * a2) / a3
 
-        return torch.stack(
-            [x_dot, x_dot_dot, theta_dot, theta_dot_dot], dim=-1)
+        return torch.stack([x_dot, x_dot_dot, theta_dot, theta_dot_dot],
+                           dim=-1)

@@ -171,35 +171,32 @@ class ExperienceDataset(torch.nn.Module):
             # pad with initial state for the first x_steps timesteps
             states_ = torch.cat([states_[[0] * (x_steps - 1)], states_], 0)
             # get input states up to x_steps in the past.
-            states_ = join(
-                [
-                    states_[i:i - x_steps - (output_steps - 1), :]
-                    for i in range(x_steps)
-                ],
-                dim=1)
+            states_ = join([
+                states_[i:i - x_steps - (output_steps - 1), :]
+                for i in range(x_steps)
+            ],
+                           dim=1)
             # same for actions (u_steps in the past, pad with zeros for the
             # first u_steps)
             actions_ = torch.cat([
                 torch.zeros((u_steps - 1, actions.shape[1])).double(), actions
             ])
-            actions_ = join(
-                [
-                    actions_[i:i - u_steps - (output_steps - 1), :]
-                    for i in range(u_steps)
-                ],
-                dim=1)
+            actions_ = join([
+                actions_[i:i - u_steps - (output_steps - 1), :]
+                for i in range(u_steps)
+            ],
+                            dim=1)
 
             # create input vector
             inp = torch.cat([states_, actions_], dim=-1)
 
             # get output states up to output_steps in the future
             H = states.shape[0]
-            ostates = join(
-                [
-                    states[i:H - (output_steps - i - 1), :]
-                    for i in range(output_steps)
-                ],
-                dim=1)
+            ostates = join([
+                states[i:H - (output_steps - i - 1), :]
+                for i in range(output_steps)
+            ],
+                           dim=1)
 
             #  create output vector
             tgt = (ostates[1:, :] - ostates[:-1, :]
@@ -208,19 +205,20 @@ class ExperienceDataset(torch.nn.Module):
             # append costs if requested
             if return_costs:
                 costs = torch.tensor(self.costs[epi]).double()
-                ocosts = join(
-                    [
-                        costs[i:H - (output_steps - i - 1), :]
-                        for i in range(output_steps)
-                    ],
-                    dim=1)
+                if costs.dim() == 1:
+                    costs = costs.unsqueeze(1)
+                ocosts = join([
+                    costs[i:H - (output_steps - i - 1), :]
+                    for i in range(output_steps)
+                ],
+                              dim=1)
 
                 tgt = torch.cat([tgt, ocosts[:-1, :]], dim=-1)
 
             inputs.append(inp)
             targets.append(tgt)
 
-        ret = torch.cat(inputs), torch.cat(targets)
+        ret = torch.cat(inputs).detach(), torch.cat(targets).detach()
         return ret
 
     def sample_states(self, n_samples=1, timestep=0):

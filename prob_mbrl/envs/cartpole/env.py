@@ -50,19 +50,17 @@ class CartpoleReward(torch.nn.Module):
         # compute the distance between the tip of the pole and the target tip
         # location
         targeta = angles.to_complex(self.target, [2])
-        target_tip_xy = torch.cat(
-            [
-                targeta[:, 0, None] + self.pole_length * targeta[:, 3, None],
-                -self.pole_length * targeta[:, 4, None]
-            ],
-            dim=-1)
+        target_tip_xy = torch.cat([
+            targeta[:, 0, None] + self.pole_length * targeta[:, 3, None],
+            -self.pole_length * targeta[:, 4, None]
+        ],
+                                  dim=-1)
         xa = angles.to_complex(x, [2])
-        pole_tip_xy = torch.cat(
-            [
-                xa[:, 0, None] + self.pole_length * xa[:, 3, None],
-                -self.pole_length * xa[:, 4, None]
-            ],
-            dim=-1)
+        pole_tip_xy = torch.cat([
+            xa[:, 0, None] + self.pole_length * xa[:, 3, None],
+            -self.pole_length * xa[:, 4, None]
+        ],
+                                dim=-1)
 
         pole_tip_xy = pole_tip_xy.unsqueeze(
             0) if pole_tip_xy.dim() == 1 else pole_tip_xy
@@ -74,8 +72,8 @@ class CartpoleReward(torch.nn.Module):
         delta = delta / (2 * self.pole_length)
 
         # compute cost
-        cost = 0.5 * ((delta.matmul(self.Q) * delta).sum(-1, keepdim=True) +
-                      (u.matmul(self.R) * u).sum(-1, keepdim=True))
+        cost = 0.5 * ((delta.mm(self.Q) * delta).sum(-1, keepdim=True) +
+                      (u.mm(self.R) * u).sum(-1, keepdim=True))
 
         # reward is negative cost.
         # optimizing the exponential of the negative cost is equivalent to
@@ -100,7 +98,7 @@ class Cartpole(GymEnv):
     def __init__(self, model=CartpoleModel(), reward_func=None):
         # init parent class
         reward_func = reward_func if callable(reward_func) else CartpoleReward(
-            pole_length=model.l)
+            pole_length=model.lp)
         super(Cartpole, self).__init__(model, reward_func)
 
         # init this class
@@ -135,7 +133,7 @@ class Cartpole(GymEnv):
         scale = screen_width / world_width
         carty = 100  # TOP OF CART
         polewidth = 10.0 * (self.model.mp / 0.5)
-        polelen = scale * self.model.l
+        polelen = scale * self.model.lp
         cartwidth = 50.0 * torch.sqrt(self.model.mc / 0.5)
         cartheight = 30.0 * torch.sqrt(self.model.mc / 0.5)
 

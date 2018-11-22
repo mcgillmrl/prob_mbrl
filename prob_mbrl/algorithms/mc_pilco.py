@@ -52,6 +52,7 @@ def rollout(states,
             resample=resample_model,
             resample_output_noise=resample_state_noise)
 
+        # moment matching for states
         if mm_states:
             m = next_states.mean(0)
             deltas = next_states - m
@@ -63,10 +64,12 @@ def rollout(states,
             else:
                 # make sure we don't underestimate the uncertainty
                 z1 = (z1 - z1.mean(0)) / z1.std(0)
-            z1.requires_grad = False
+            z1 = z1.detach()
             next_states = m + z1.mm(L)
 
+        # moment matching for rewards
         if mm_rewards:
+            print ''
             m = rewards.mean(0)
             deltas = rewards - m
             jitter = 1e-9 * torch.eye(m.shape[-1], device=m.device)
@@ -77,7 +80,7 @@ def rollout(states,
             else:
                 # make sure we don't underestimate the uncertainty
                 z2 = (z2 - z2.mean(0)) / z2.std(0)
-            z2.requires_grad = False
+            z2 = z2.detach()
             rewards = m + z2.mm(L)
 
         trajectory.append((states, actions, rewards))
@@ -97,70 +100,77 @@ def mc_pilco(init_states,
              mm_rewards=False,
              maximize=True,
              clip_grad=1.0,
-             mpc=False,
-             max_steps=None,
              on_iteration=None):
+    dynamics.eval()
+    policy.train()
+
     msg = "Accumulated rewards: %f" if maximize else "Accumulated costs: %f"
     if opt is None:
         params = filter(lambda p: p.requires_grad, policy.parameters())
         opt = torch.optim.Adam(params)
     pbar = tqdm.tqdm(range(opt_iters), total=opt_iters)
-    max_steps = steps if max_steps is None else max_steps
     D = init_states.shape[-1]
     shape = init_states.shape
-    z_mm = None
-    z_rr = None
+    z_mm = torch.randn(steps + shape[0], *shape[1:])
+    z_mm = z_mm.reshape(-1, D).float().to(dynamics.X.device)
+    z_rr = torch.randn(steps + shape[0], 1)
+    z_rr = z_rr.reshape(-1, 1).float().to(dynamics.X.device)
 
     def resample():
         dynamics.resample()
         policy.resample()
-        z_mm = torch.randn(steps + shape[0], *shape[1:])
-        z_mm = z_mm.reshape(-1, D).float().to(dynamics.X.device)
-        z_rr = torch.randn(steps + shape[0], 1)
-        z_rr = z_rr.reshape(-1, 1).float().to(dynamics.X.device)
+        z_mm.normal_()
+        z_rr.normal_()
 
     if pegasus:
         # sample initial random numbers
         resample()
 
-    init_timestep = 0
     x0 = init_states
     states = [init_states] * 2
-    sample_idx = torch.tensor(1).random_(0, x0.shape[0])
     dynamics.eval()
     policy.train()
-    policy.zero_grad()
-    dynamics.zero_grad()
 
     for i in pbar:
-        if mpc:
-            if init_timestep != 0:
-                # start from a sample from next simulated timestep
-                x0 = states[1].detach()
-                sample_idx.random_(x0.shape[0])
-                x0 = x0[sample_idx] * torch.ones_like(x0)
-                # add noise
-                x0 += init_states.std(0) * torch.randn_like(x0)
+        # sample initial states
+        if exp is not None:
+            N_particles = init_states.shape[0]
+            x0 = torch.tensor(exp.sample_states(N_particles)).to(
+                dynamics.X.device).float()
+            x0 += 1e-1 * init_states.std(0) * torch.randn_like(x0)
+        else:
+            x0 = init_states
+        x0 = x0.detach()
 
-            init_timestep = (init_timestep + 1) % steps
+        # zero gradients
+        policy.zero_grad()
+        dynamics.zero_grad()
+        opt.zero_grad()
+        if not pegasus:
+            dynamics.resample()
+            policy.resample()
 
         # rollout policy
-        H = max_steps if mpc and init_timestep != 1 else steps
+        H = steps
         try:
             trajs = rollout(
                 x0,
                 dynamics,
                 policy,
                 H,
-                resample_model_noise=not pegasus,
+                resample_state_noise=not pegasus,
+                resample_action_noise=not pegasus,
                 mm_states=mm_states,
                 mm_rewards=mm_rewards,
-                z_mm=z_mm,
-                z_rr=z_rr)
+                z_mm=z_mm if not pegasus else None,
+                z_rr=z_rr if not pegasus else None)
             states, actions, rewards = (torch.stack(x) for x in zip(*trajs))
         except RuntimeError:
             # resample random numbers
             resample()
+            policy.zero_grad()
+            dynamics.zero_grad()
+            opt.zero_grad()
             continue
 
         # calculate loss. average over batch index, sum over time step index
@@ -175,44 +185,23 @@ def mc_pilco(init_states,
         else:
             loss = discounted_rewards.sum(0).mean()
 
-        if init_timestep == mpc * 1:
-            loss0 = loss
         # compute gradients
         loss.backward()
 
-        if init_timestep == 0:
-            # clip gradients
-            if clip_grad is not None:
-                torch.nn.utils.clip_grad_norm_(policy.parameters(), clip_grad)
+        # clip gradients
+        if clip_grad is not None:
+            torch.nn.utils.clip_grad_norm_(policy.parameters(), clip_grad)
 
-            # update parameters
-            opt.step()
-            if maximize:
-                pbar.set_description(msg % (-loss0))
-            else:
-                pbar.set_description(msg % (loss0))
+        # update parameters
+        opt.step()
+        if maximize:
+            pbar.set_description(msg % (-loss))
+        else:
+            pbar.set_description(msg % (loss))
 
-            if callable(on_iteration):
-                on_iteration(i, loss, states, actions, rewards, opt, policy,
-                             dynamics)
-
-            # zero gradients
-            policy.zero_grad()
-            dynamics.zero_grad()
-
-            # setup dynamics and policy
-            if not pegasus:
-                dynamics.resample()
-                policy.resample()
-
-            # sample initial states
-            if exp is not None:
-                N_particles = init_states.shape[0]
-                x0 = torch.tensor(exp.sample_states(N_particles)).to(
-                    dynamics.X.device).float()
-                x0 += 1e-1 * init_states.std(0) * torch.randn_like(x0)
-            else:
-                x0 = init_states
+        if callable(on_iteration):
+            on_iteration(i, loss, states, actions, rewards, opt, policy,
+                         dynamics)
 
 
 class MCPILCOAgent(torch.nn.Module):
@@ -301,7 +290,8 @@ class MCPILCOAgent(torch.nn.Module):
                         dynamics,
                         policy,
                         H,
-                        resample_model_noise=not pegasus,
+                        resample_state_noise=not pegasus,
+                        resample_action_noise=not pegasus,
                         mm_states=mm_states,
                         mm_rewards=mm_rewards,
                         z_mm=z_mm,
