@@ -4,7 +4,7 @@ import torch
 from functools import partial
 from matplotlib import pyplot as plt
 from scipy.special import logsumexp
-from prob_mbrl import train_regressor, losses, models
+from prob_mbrl import utils, losses, models
 torch.set_flush_denormal(True)
 torch.set_num_threads(2)
 
@@ -108,9 +108,9 @@ if use_cuda and torch.cuda.is_available():
 
 print(('Dataset size:', train_x.shape[0], 'samples'))
 
-train_regressor(
+utils.train_regressor(
     model, iters=4000, batchsize=N_ensemble, resample=True, optimizer=opt1)
-train_regressor(
+utils.train_regressor(
     mmodel,
     iters=4000,
     batchsize=N_ensemble,

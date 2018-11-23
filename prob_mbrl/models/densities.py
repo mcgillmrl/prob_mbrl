@@ -2,7 +2,7 @@ import torch
 import warnings
 
 from torch.nn.functional import log_softmax
-from prob_mbrl.models import StochasticModule
+from prob_mbrl.models.modules import StochasticModule
 
 
 class DiagGaussianDensity(StochasticModule):
