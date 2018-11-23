@@ -30,6 +30,7 @@ class DiagGaussianDensity(StochasticModule):
         mean, log_std = x.split(D, -1)
 
         # scale and center outputs
+        Sy = 0.1
         if scaling_params is not None and len(scaling_params) > 0:
             if len(scaling_params) == 2:
                 my = scaling_params[0]
@@ -45,7 +46,11 @@ class DiagGaussianDensity(StochasticModule):
                 if (mean.shape != self.z.shape) or resample_output_noise:
                     self.z.data = torch.randn_like(mean)
                 z = self.z
-                samples = samples + z * log_std.exp()
+                noise = z * log_std.exp()
+                # clamp measurement noise to a sane range
+                lim = 2 * Sy
+                noise = torch.max(-lim, torch.min(lim, noise))
+                samples = samples + noise
             return samples
         else:
             return mean, log_std
@@ -83,6 +88,7 @@ class MixtureDensity(StochasticModule):
         log_std = log_std.view(-1, D, self.n_components)
 
         # scale and center outputs
+        Sy = 0.1
         if scaling_params is not None and len(scaling_params) > 0:
             if len(scaling_params) == 2:
                 my = scaling_params[0].unsqueeze(-1)
@@ -106,8 +112,11 @@ class MixtureDensity(StochasticModule):
                     self.z_normal.data = torch.randn(
                         *mean.shape[:-1], device=mean.device)
                 z2 = self.z_normal
-                samples = samples + z2 * log_std.gather(-1,
-                                                        k).squeeze(-1).exp()
+                noise = z2 * log_std.gather(-1, k).squeeze(-1).exp()
+                # clamp measurement noise to a sane range
+                lim = 2 * Sy
+                noise = torch.max(-lim, torch.min(lim, noise))
+                samples = samples + noise
             return samples
         else:
             return mean, log_std, logit_pi
