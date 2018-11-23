@@ -53,22 +53,20 @@ class DoubleCartpoleReward(torch.nn.Module):
         # compute the distance between the tip of the pole and the target tip
         # location
         targeta = angles.to_complex(self.target, [2, 4])
-        target_tip_xy = torch.cat(
-            [
-                targeta[:, 0] - self.pole1_length * targeta[:, 4] -
-                self.pole2_length * targeta[:, 5],
-                self.pole1_length * targeta[:, 6] +
-                self.pole2_length * targeta[:, 7]
-            ],
-            dim=-1)
+        target_tip_xy = torch.cat([
+            targeta[:, 0:1] - self.pole1_length * targeta[:, 4:5] -
+            self.pole2_length * targeta[:, 5:6],
+            self.pole1_length * targeta[:, 6:7] +
+            self.pole2_length * targeta[:, 7:8]
+        ],
+                                  dim=-1)
         xa = angles.to_complex(x, [2, 4])
-        pole_tip_xy = torch.cat(
-            [
-                xa[:, 0] - self.pole1_length * xa[:, 4] -
-                self.pole2_length * xa[:, 5],
-                self.pole1_length * xa[:, 6] + self.pole2_length * xa[:, 7]
-            ],
-            dim=-1)
+        pole_tip_xy = torch.cat([
+            xa[:, 0:1] - self.pole1_length * xa[:, 4:5] -
+            self.pole2_length * xa[:, 5:6],
+            self.pole1_length * xa[:, 6:7] + self.pole2_length * xa[:, 7:8]
+        ],
+                                dim=-1)
 
         pole_tip_xy = pole_tip_xy.unsqueeze(
             0) if pole_tip_xy.dim() == 1 else pole_tip_xy
@@ -77,8 +75,8 @@ class DoubleCartpoleReward(torch.nn.Module):
 
         delta = pole_tip_xy - target_tip_xy
         delta = delta / (2 * (self.pole1_length + self.pole2_length))
-        cost = 0.5 * ((delta.matmul(self.Q) * delta).sum(-1) +
-                      (u.matmul(self.R) * u).sum(-1))
+        cost = 0.5 * ((delta.mm(self.Q) * delta).sum(-1, keepdim=True) +
+                      (u.mm(self.R) * u).sum(-1, keepdim=True))
         # reward is negative cost.
         # optimizing the exponential of the negative cost is equivalent to
         # doing inference to maximize rewards (high reward trajectories
