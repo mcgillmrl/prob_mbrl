@@ -100,9 +100,16 @@ def mc_pilco(init_states,
              mm_rewards=False,
              maximize=True,
              clip_grad=1.0,
+             discount=None,
              on_iteration=None):
     dynamics.eval()
     policy.train()
+
+    if discount is None:
+        discount = lambda i: 1.0 / steps
+    elif not callable(discount):
+        discount_factor = discount
+        discount = lambda i: discount_factor**i
 
     msg = "Accumulated rewards: %f" if maximize else "Accumulated costs: %f"
     if opt is None:
@@ -132,23 +139,12 @@ def mc_pilco(init_states,
     policy.train()
 
     for i in pbar:
-        # sample initial states
-        if exp is not None:
-            N_particles = init_states.shape[0]
-            x0 = torch.tensor(exp.sample_states(N_particles)).to(
-                dynamics.X.device).float()
-            x0 += 1e-1 * init_states.std(0) * torch.randn_like(x0)
-        else:
-            x0 = init_states
-        x0 = x0.detach()
-
         # zero gradients
         policy.zero_grad()
         dynamics.zero_grad()
         opt.zero_grad()
         if not pegasus:
-            dynamics.resample()
-            policy.resample()
+            resample()
 
         # rollout policy
         H = steps
@@ -174,10 +170,6 @@ def mc_pilco(init_states,
             continue
 
         # calculate loss. average over batch index, sum over time step index
-        def discount(i):
-            # return 0.99**i
-            return 1.0 / len(rewards)
-
         discounted_rewards = torch.stack(
             [r * discount(i) for i, r in enumerate(rewards)])
         if maximize:
@@ -202,6 +194,16 @@ def mc_pilco(init_states,
         if callable(on_iteration):
             on_iteration(i, loss, states, actions, rewards, opt, policy,
                          dynamics)
+
+        # sample initial states
+        if exp is not None:
+            N_particles = init_states.shape[0]
+            x0 = torch.tensor(exp.sample_states(N_particles)).to(
+                dynamics.X.device).float()
+            x0 += 1e-1 * init_states.std(0) * torch.randn_like(x0)
+        else:
+            x0 = init_states
+        x0 = x0.detach()
 
 
 class MCPILCOAgent(torch.nn.Module):
