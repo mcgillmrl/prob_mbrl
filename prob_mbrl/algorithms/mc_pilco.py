@@ -69,7 +69,6 @@ def rollout(states,
 
         # moment matching for rewards
         if mm_rewards:
-            print ''
             m = rewards.mean(0)
             deltas = rewards - m
             jitter = 1e-9 * torch.eye(m.shape[-1], device=m.device)
