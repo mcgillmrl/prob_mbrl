@@ -29,8 +29,8 @@ class DoubleCartpoleReward(torch.nn.Module):
                  pole1_length=0.6,
                  pole2_length=0.6,
                  target=torch.tensor([0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-                 Q=4.0 * torch.eye(2),
-                 R=1e-2 * torch.eye(1)):
+                 Q=8.0 * torch.eye(2),
+                 R=1e-3 * torch.eye(1)):
         super(DoubleCartpoleReward, self).__init__()
         self.Q = torch.nn.Parameter(torch.tensor(Q), requires_grad=False)
         self.R = torch.nn.Parameter(torch.tensor(R), requires_grad=False)
@@ -102,7 +102,7 @@ class DoubleCartpole(GymEnv):
 
         # init this class
         high = np.array([20])
-        self.action_space = spaces.Box(-high, high)
+        self.action_space = spaces.Box(-high, high, dtype=np.float32)
 
         high = np.array([
             np.finfo(np.float32).max,
@@ -112,7 +112,7 @@ class DoubleCartpole(GymEnv):
             2 * np.pi,
             np.finfo(np.float32).max,
         ])
-        self.observation_space = spaces.Box(-high, high)
+        self.observation_space = spaces.Box(-high, high, dtype=np.float32)
 
     def reset(self):
         self.state = np.array([0, 0, np.pi, 0, np.pi, 0])

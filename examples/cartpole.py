@@ -105,7 +105,9 @@ if __name__ == '__main__':
         # apply policy
         ret = utils.apply_controller(
             env, pol_, H, callback=lambda *args, **kwargs: env.render())
-        params_ = [] if it < n_rnd else list(pol.parameters())
+        params_ = [] if it < n_rnd else [
+            p.clone() for p in list(pol.parameters())
+        ]
         exp.append_episode(*ret, policy_params=params_)
         exp.save(results_filename)
 
