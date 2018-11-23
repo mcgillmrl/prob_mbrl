@@ -14,9 +14,9 @@ if __name__ == '__main__':
     n_rnd = 10
     H = 60
     N_particles = 100
-    dyn_components = 4
+    dyn_components = 1
     dyn_hidden = [200] * 2
-    pol_hidden = [50] * 2
+    pol_hidden = [200] * 2
     use_cuda = False
     learn_reward = False
 
