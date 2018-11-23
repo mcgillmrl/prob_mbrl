@@ -1,5 +1,6 @@
 import angles
 import numpy as np
+import os
 import torch
 
 
@@ -12,7 +13,7 @@ class ExperienceDataset(torch.nn.Module):
         self.time_stamps = []
         self.states = []
         self.actions = []
-        self.costs = []
+        self.rewards = []
         self.info = []
         self.policy_parameters = []
         self.curr_episode = -1
@@ -27,7 +28,7 @@ class ExperienceDataset(torch.nn.Module):
             self.new_episode()
         self.states[curr_episode].append(x_t)
         self.actions[curr_episode].append(u_t)
-        self.costs[curr_episode].append(c_t)
+        self.rewards[curr_episode].append(c_t)
         self.info[curr_episode].append(info)
         self.time_stamps[curr_episode].append(t)
         self.state_changed = True
@@ -39,7 +40,7 @@ class ExperienceDataset(torch.nn.Module):
         self.time_stamps.append([])
         self.states.append([])
         self.actions.append([])
-        self.costs.append([])
+        self.rewards.append([])
         self.info.append([])
         if policy_params:
             self.policy_parameters.append(policy_params)
@@ -52,7 +53,7 @@ class ExperienceDataset(torch.nn.Module):
     def append_episode(self,
                        states,
                        actions,
-                       costs,
+                       rewards,
                        infos=None,
                        policy_params=None,
                        ts=None):
@@ -64,7 +65,7 @@ class ExperienceDataset(torch.nn.Module):
             self.time_stamps.append(ts)
         self.states.append(states)
         self.actions.append(actions)
-        self.costs.append(costs)
+        self.rewards.append(rewards)
 
     def n_samples(self):
         ''' Returns the total number of samples in this dataset '''
@@ -82,7 +83,7 @@ class ExperienceDataset(torch.nn.Module):
         self.time_stamps = []
         self.states = []
         self.actions = []
-        self.costs = []
+        self.rewards = []
         self.info = []
         self.policy_parameters = []
         self.curr_episode = -1
@@ -102,7 +103,7 @@ class ExperienceDataset(torch.nn.Module):
             self.time_stamps = self.time_stamps[:episode]
             self.states = self.states[:episode]
             self.actions = self.actions[:episode]
-            self.costs = self.costs[:episode]
+            self.rewards = self.rewards[:episode]
             self.info = self.info[:episode]
             self.policy_parameters = self.policy_parameters[:episode]
             self.state_changed = True
@@ -202,13 +203,13 @@ class ExperienceDataset(torch.nn.Module):
             tgt = (ostates[1:, :] - ostates[:-1, :]
                    if deltas else ostates[1:, :])
 
-            # append costs if requested
+            # append rewards if requested
             if return_costs:
-                costs = torch.tensor(self.costs[epi]).double()
-                if costs.dim() == 1:
-                    costs = costs.unsqueeze(1)
+                rewards = torch.tensor(self.rewards[epi]).double()
+                if rewards.dim() == 1:
+                    rewards = rewards.unsqueeze(1)
                 ocosts = join([
-                    costs[i:H - (output_steps - i - 1), :]
+                    rewards[i:H - (output_steps - i - 1), :]
                     for i in range(output_steps)
                 ],
                               dim=1)
@@ -229,4 +230,20 @@ class ExperienceDataset(torch.nn.Module):
         return torch.tensor(x0)[idx].double()
 
     def save(self, filename):
-        state_dict = {'': ''}
+        try:
+            os.makedirs(os.path.dirname(filename))
+        except OSError:
+            pass
+        state_dict = dict(
+            states=self.states,
+            actions=self.actions,
+            rewards=self.rewards,
+            info=self.info,
+            times_stamps=self.time_stamps,
+            curr_episode=self.curr_episode,
+            policy_parameters=self.policy_parameters)
+        torch.save(state_dict, filename)
+
+    def load(self, filename):
+        state_dict = torch.load(filename)
+        self.__dict__.update(state_dict)

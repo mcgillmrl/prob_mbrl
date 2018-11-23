@@ -8,7 +8,7 @@ def apply_controller(env,
                      max_steps,
                      preprocess=None,
                      callback=None,
-                     realtime=False):
+                     realtime=True):
     '''
         Starts the env and applies the current policy to the env for a duration
         specified by H (in seconds). If  H is not set, it will run for self.H

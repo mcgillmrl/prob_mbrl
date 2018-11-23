@@ -1,32 +1,38 @@
 import atexit
+import datetime
 import numpy as np
+import os
 import torch
 import tensorboardX
 
 from prob_mbrl import utils, models, algorithms, losses, train_regressor, envs
 torch.set_flush_denormal(True)
-torch.set_num_threads(2)
+torch.set_num_threads(1)
 
 if __name__ == '__main__':
     # parameters
-    n_rnd = 4
-    H = 25
+    n_rnd = 10
+    H = 60
     N_particles = 100
-    dyn_components = 2
+    dyn_components = 4
     dyn_hidden = [200] * 2
-    pol_hidden = [200] * 2
+    pol_hidden = [50] * 2
     use_cuda = False
     learn_reward = False
 
     # initialize environment
-    env = envs.Cartpole()
+    env = envs.DoubleCartpole()
+    results_filename = os.path.expanduser(
+        "~/.prob_mbrl/results_%s_%s.pth.tar" %
+        (env.__class__.__name__,
+         datetime.datetime.now().strftime("%Y%m%d%H%M%S.%f")))
     env.dt = env.model.dt
     D = env.observation_space.shape[0]
     U = env.action_space.shape[0]
     maxU = env.action_space.high
 
     # initialize reward/cost function
-    if learn_reward or env.reward_func == None:
+    if learn_reward or env.reward_func is None:
         reward_func = None
     else:
         reward_func = env.reward_func
@@ -99,7 +105,9 @@ if __name__ == '__main__':
         # apply policy
         ret = utils.apply_controller(
             env, pol_, H, callback=lambda *args, **kwargs: env.render())
-        exp.append_episode(*ret)
+        params_ = [] if it < n_rnd else list(pol.parameters())
+        exp.append_episode(*ret, policy_params=params_)
+        exp.save(results_filename)
 
         if it < n_rnd - 1:
             continue
@@ -132,7 +140,8 @@ if __name__ == '__main__':
         # sample initial states for policy optimization
         x0 = torch.tensor(exp.sample_states(N_particles, timestep=0)).to(
             dyn.X.device).float()
-        x0 += 1e-1 * x0.std(0) * torch.randn_like(x0)
+        x0 = x0 + 1e-1 * x0.std(0) * torch.randn_like(x0)
+        x0 = x0.detach()
         utils.plot_rollout(x0, dyn, pol, H)
 
         # train policy
