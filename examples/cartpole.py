@@ -11,8 +11,8 @@ torch.set_num_threads(1)
 
 if __name__ == '__main__':
     # parameters
-    n_rnd = 10
-    H = 60
+    n_rnd = 4
+    H = 40
     N_particles = 100
     dyn_components = 1
     dyn_hidden = [200] * 2
@@ -21,7 +21,7 @@ if __name__ == '__main__':
     learn_reward = False
 
     # initialize environment
-    env = envs.DoubleCartpole()
+    env = envs.Cartpole()
     results_filename = os.path.expanduser(
         "~/.prob_mbrl/results_%s_%s.pth.tar" %
         (env.__class__.__name__,
@@ -78,10 +78,10 @@ if __name__ == '__main__':
     exp = utils.ExperienceDataset()
 
     # initialize dynamics optimizer
-    opt1 = torch.optim.Adam(dyn.parameters(), 1e-3)
+    opt1 = torch.optim.Adam(dyn.parameters(), 1e-4)
 
     # initialize policy optimizer
-    opt2 = torch.optim.Adam(pol.parameters(), 1e-3)
+    opt2 = torch.optim.Adam(pol.parameters(), 1e-4)
 
     if use_cuda and torch.cuda.is_available():
         dyn = dyn.cuda()
