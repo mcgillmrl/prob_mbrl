@@ -1,16 +1,7 @@
 import torch
 import tqdm
 
-from prob_mbrl.utils import rollout
-
-
-def get_z_rnd(z, i, shape, device=None):
-    if z is not None:
-        idxs = torch.arange(i, i + shape[0]).to(device).long()
-        idxs %= shape[0]
-        return z[idxs]
-    else:
-        return torch.randn(*shape, device=device)
+from prob_mbrl.utils import rollout, plot_trajectories
 
 
 def mc_pilco(init_states,
@@ -26,7 +17,8 @@ def mc_pilco(init_states,
              maximize=True,
              clip_grad=1.0,
              discount=None,
-             on_iteration=None):
+             on_iteration=None,
+             debug=False):
     dynamics.eval()
     policy.train()
 
@@ -68,7 +60,7 @@ def mc_pilco(init_states,
         policy.zero_grad()
         dynamics.zero_grad()
         opt.zero_grad()
-        if not pegasus:
+        if not pegasus or (i + (opt_iters / 10)) % (opt_iters / 2) == 0:
             resample()
 
         # rollout policy
@@ -86,7 +78,15 @@ def mc_pilco(init_states,
                 z_mm=z_mm if not pegasus else None,
                 z_rr=z_rr if not pegasus else None)
             states, actions, rewards = (torch.stack(x) for x in zip(*trajs))
+            if debug and i % 100 == 0:
+                plot_trajectories(
+                    states.transpose(0, 1).cpu().detach().numpy(),
+                    actions.transpose(0, 1).cpu().detach().numpy(),
+                    rewards.transpose(0, 1).cpu().detach().numpy())
         except RuntimeError:
+            import traceback
+            traceback.print_exc()
+            print "RuntimeError"
             # resample random numbers
             resample()
             policy.zero_grad()
@@ -101,6 +101,8 @@ def mc_pilco(init_states,
             loss = -discounted_rewards.sum(0).mean()
         else:
             loss = discounted_rewards.sum(0).mean()
+        # add regularization penalty
+        #loss = loss + 1e-3 * policy.regularization_loss()
 
         # compute gradients
         loss.backward()
