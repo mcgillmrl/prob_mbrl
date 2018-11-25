@@ -12,15 +12,15 @@ torch.set_num_threads(1)
 if __name__ == '__main__':
     # parameters
     n_rnd = 10
-    H = 60
+    H = 40
     N_particles = 100
     dyn_components = 1
     dyn_hidden = [200] * 2
-    use_cuda = False
+    use_cuda = True
     learn_reward = False
 
     # initialize environment
-    env = envs.DoubleCartpole()
+    env = envs.Cartpole()
     results_filename = os.path.expanduser(
         "~/.prob_mbrl/results_%s_%s.pth.tar" %
         (env.__class__.__name__,
@@ -37,8 +37,13 @@ if __name__ == '__main__':
         reward_func = env.reward_func
 
     # initialize learning algorithm
-    agent = algorithms.MBDDPG.MBDDPG(D, U, reward_func, dyn_components,
-                                     dyn_hidden)
+    agent = algorithms.MBDDPG.MBDDPG(
+        D,
+        U,
+        maxU,
+        reward_func=reward_func,
+        dyn_components=dyn_components,
+        dyn_hidden=dyn_hidden)
 
     # initalize experience dataset
     exp = utils.ExperienceDataset()
@@ -55,10 +60,11 @@ if __name__ == '__main__':
     atexit.register(on_close)
 
     # policy learning loop
-    pol = agent.actor
+    pol = agent
     for it in range(100 + n_rnd):
         if it < n_rnd:
-            pol_ = lambda x, t: maxU * (2 * np.random.rand(U, ) - 1)
+            pol_ = (lambda x, t: maxU * (2 * np.random.rand(U, ) - 1)
+                    )  # noqa: E731
         else:
             pol_ = pol
 
@@ -87,7 +93,7 @@ if __name__ == '__main__':
                     states, actions, rewards, plot_samples=False)
 
         # train agent
-        agent.train(exp, H, 1000, batch_size=N_particles)
+        agent.fit(exp, H, 120, batch_size=N_particles)
 
         # plot rollout
         x0 = torch.tensor(exp.sample_states(N_particles, timestep=0)).to(
