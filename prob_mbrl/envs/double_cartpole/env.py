@@ -98,7 +98,9 @@ class DoubleCartpole(GymEnv):
         reward_func = reward_func if callable(
             reward_func) else DoubleCartpoleReward(
                 pole1_length=model.l1, pole2_length=model.l2)
-        super(DoubleCartpole, self).__init__(model, reward_func)
+        measurement_noise = torch.tensor([0.01] * 6)
+        super(DoubleCartpole, self).__init__(model, reward_func,
+                                             measurement_noise)
 
         # init this class
         high = np.array([20])
@@ -114,9 +116,11 @@ class DoubleCartpole(GymEnv):
         ])
         self.observation_space = spaces.Box(-high, high, dtype=np.float32)
 
-    def reset(self):
-        self.state = np.array([0, 0, np.pi, 0, np.pi, 0])
-        self.state += 1e-2 * np.random.randn(*self.state.shape)
+    def reset(self,
+              init_state=np.array([0, 0, np.pi, 0, np.pi, 0]),
+              init_state_std=2e-1):
+        self.state = init_state + init_state_std * np.random.randn(
+            *init_state.shape)
         return self.state
 
     def render(self, mode="human"):

@@ -16,7 +16,7 @@ def mlp(input_dims,
         weights_initializer=partial(
             torch.nn.init.xavier_normal_,
             gain=torch.nn.init.calculate_gain('relu')),
-        biases_initializer=partial(torch.nn.init.uniform_, a=-0.01, b=0.01),
+        biases_initializer=partial(torch.nn.init.uniform_, a=-0.1, b=0.1),
         dropout_layers=BDropout,
         input_dropout=None):
     '''
@@ -176,28 +176,42 @@ class DynamicsModel(Regressor):
 
         # if not returning samples, outs will be a tuple consisting of the
         # parameters of the output distribution
-        if isinstance(outs, tuple):
+        return_samples = kwargs.get("return_samples", False)
+        if not return_samples:
             return outs
 
-        # if we are returning samples, the output will be a tensor whose last
-        # dimension is of size D+1, when the reward function is being learned,
-        # or of size D, when an external reward function is available.
+        # if we are returning samples, the output will be either:
+        # 1) a tensor whose last dimension is of size D+1, when the reward
+        #    function is being learned, or of size D, when an external reward
+        #    function is available.
+        # 2) a tuple where the  first element is the tensor described above and
+        #    the a corresponding tuple of measurement noise samples
         if not inputs_as_tuple:
             D = outs.shape[-1]
             prev_states, actions = inputs.split(D, -1)
 
+        state_noise = torch.zeros_like(prev_states)
+        reward_noise = torch.zeros_like(state_noise[:, 0:1])
+
         if callable(self.reward_func):
             # if we have a known reward function
-            dstates = outs
+            if len(outs) == 2:  # density is returning the output noise
+                dstates, state_noise = outs
+            else:
+                dstates = outs
             rewards = self.reward_func(prev_states + dstates, actions)
         else:
             D = outs.shape[-1] - 1
+            if len(outs) == 2:  # density is returning the output noise
+                outs, noise = outs
+                state_noise, reward_noise = noise.split(D, -1)
             # assume rewards come from the last dimension of the output
             dstates, rewards = outs.split(D, -1)
 
         states = dstates if deltas else prev_states + dstates
 
         if separate_outputs:
-            return states, rewards
+            return (states, rewards), (state_noise, reward_noise)
 
-        return torch.cat([states, rewards], -1)
+        return torch.cat([states, rewards],
+                         -1), torch.cat([state_noise, reward_noise], -1)

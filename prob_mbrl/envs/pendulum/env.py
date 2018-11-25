@@ -29,7 +29,7 @@ class PendulumReward(torch.nn.Module):
                  pole_length=0.5,
                  target=torch.tensor([np.pi, 0]),
                  Q=4.0 * torch.eye(2),
-                 R=1e-2 * torch.eye(1)):
+                 R=1e-4 * torch.eye(1)):
         super(PendulumReward, self).__init__()
         self.Q = torch.nn.Parameter(torch.tensor(Q), requires_grad=False)
         self.R = torch.nn.Parameter(torch.tensor(R), requires_grad=False)
@@ -50,18 +50,14 @@ class PendulumReward(torch.nn.Module):
         # compute the distance between the tip of the pole and the target tip
         # location
         targeta = angles.to_complex(self.target, [0])
-        target_tip_xy = torch.cat(
-            [
-                self.pole_length * targeta[:, 1, None],
-                -self.pole_length * targeta[:, 2, None]
-            ],
-            dim=-1)
+        target_tip_xy = torch.cat([
+            self.pole_length * targeta[:, 1:2],
+            -self.pole_length * targeta[:, 2:3]
+        ],
+                                  dim=-1)
         xa = angles.to_complex(x, [0])
         pole_tip_xy = torch.cat(
-            [
-                self.pole_length * xa[:, 1, None],
-                -self.pole_length * xa[:, 2, None]
-            ],
+            [self.pole_length * xa[:, 1:2], -self.pole_length * xa[:, 2:3]],
             dim=-1)
 
         # normalized distance so that cost at [0 ,0] is 1
@@ -69,8 +65,8 @@ class PendulumReward(torch.nn.Module):
         delta = delta / (2 * self.pole_length)
 
         # compute cost
-        cost = 0.5 * ((delta.matmul(self.Q) * delta).sum(-1, keepdim=True) +
-                      (u.matmul(self.R) * u).sum(-1, keepdim=True))
+        cost = 0.5 * ((delta.mm(self.Q) * delta).sum(-1, keepdim=True) +
+                      (u.mm(self.R) * u).sum(-1, keepdim=True))
 
         # reward is negative cost.
         # optimizing the exponential of the negative cost is equivalent to
@@ -96,7 +92,8 @@ class Pendulum(GymEnv):
         # init parent class
         reward_func = reward_func if callable(reward_func) else PendulumReward(
             pole_length=model.l)
-        super(Pendulum, self).__init__(model, reward_func)
+        measurement_noise = torch.tensor([0.1, 0.01])
+        super(Pendulum, self).__init__(model, reward_func, measurement_noise)
 
         # init this class
         high = np.array([2.5])
@@ -106,9 +103,9 @@ class Pendulum(GymEnv):
         self.observation_space = spaces.Box(
             low=-high, high=high, dtype=np.float32)
 
-    def reset(self):
-        self.state = np.array([0.0, 0.0])
-        self.state += 1e-2 * np.random.randn(*self.state.shape)
+    def reset(self, init_state=np.array([0.0, 0.0]), init_state_std=2e-1):
+        self.state = init_state + init_state_std * np.random.randn(
+            *init_state.shape)
         return self.state
 
     def render(self, mode="human"):
