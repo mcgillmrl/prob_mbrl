@@ -3,7 +3,7 @@ import torch
 
 try:
     from torch.distributions.utils import log_sum_exp as logsumexp
-except:
+except ImportError:
     logsumexp = torch.logsumexp
 from torch.nn.functional import log_softmax
 

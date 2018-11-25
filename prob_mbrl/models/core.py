@@ -141,6 +141,8 @@ class Policy(torch.nn.Module):
         if return_numpy:
             x = torch.tensor(
                 x, dtype=self.scale.dtype, device=self.scale.device)
+        else:
+            x = x.to(self.scale.device)
         x = to_complex(x, self.angle_dims)
         u = self.scale * self.model(x, **kwargs) + self.bias
         if return_numpy:
