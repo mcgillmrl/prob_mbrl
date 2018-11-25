@@ -16,8 +16,8 @@ def rollout(states,
             steps,
             resample_model=False,
             resample_policy=False,
-            resample_state_noise=False,
-            resample_action_noise=False,
+            resample_state_noise=True,
+            resample_action_noise=True,
             mm_states=False,
             mm_rewards=False,
             infer_noise_variables=False,
@@ -30,6 +30,7 @@ def rollout(states,
     '''
     trajectory = []
     M = states.shape[0]
+    state_noise = torch.zeros_like(states)
     for i in range(steps):
         # sample (or query) random numbers
         z1 = get_z_rnd(z_mm, i, states.shape, states.device)
@@ -37,25 +38,26 @@ def rollout(states,
 
         # evaluate policy
         actions = policy(
-            states,
+            states + state_noise,
             resample=resample_policy,
             resample_output_noise=resample_action_noise)
 
         # propagate state particles (and obtain rewards)
-        next_states, rewards = dynamics(
-            (states, actions),
-            output_noise=True,
-            return_samples=True,
-            separate_outputs=True,
-            deltas=False,
-            resample=resample_model,
-            resample_output_noise=resample_state_noise)
+        outs = dynamics((states, actions),
+                        output_noise=True,
+                        return_samples=True,
+                        separate_outputs=True,
+                        deltas=False,
+                        resample=resample_model,
+                        resample_output_noise=resample_state_noise)
+        next_states, rewards = outs[0]
+        state_noise, reward_noise = outs[1]
 
         # moment matching for states
         if mm_states:
             m = next_states.mean(0)
             deltas = next_states - m
-            jitter = 1e-9 * torch.eye(m.shape[-1], device=m.device)
+            jitter = 1e-12 * torch.eye(m.shape[-1], device=m.device)
             S = deltas.t().mm(deltas) / (M - 1) + jitter
             L = S.potrf()
             if infer_noise_variables:
@@ -70,7 +72,7 @@ def rollout(states,
         if mm_rewards:
             m = rewards.mean(0)
             deltas = rewards - m
-            jitter = 1e-9 * torch.eye(m.shape[-1], device=m.device)
+            jitter = 1e-12 * torch.eye(m.shape[-1], device=m.device)
             S = deltas.t().mm(deltas) / (M - 1) + jitter
             L = S.potrf()
             if infer_noise_variables:
