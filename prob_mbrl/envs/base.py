@@ -19,6 +19,7 @@ import numpy as np
 import torch
 
 from enum import IntEnum
+from gym.spaces import prng
 from gym.utils import seeding
 from scipy.integrate import ode
 
@@ -35,7 +36,7 @@ class Integrator(IntEnum):
 class GymEnv(gym.Env):
     """Open AI gym  environment."""
 
-    def __init__(self, model, reward_func=None):
+    def __init__(self, model, reward_func=None, measurement_noise=None):
         self.model = model
 
         self.seed()
@@ -43,32 +44,43 @@ class GymEnv(gym.Env):
         self.state = None
         self.reward_func = reward_func
         self.steps = 0
+        self.measurement_noise = None
+        if measurement_noise is not None:
+            self.measurement_noise = measurement_noise.double()
+        self.model.double()
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
+        prng.seed(seed % (2**32 - 1))
         return [seed]
 
     def step(self, action):
-        tensor_opts = {"dtype": torch.get_default_dtype()}
-        x = self.state.astype(np.float32)
-        x_next = self.model(
-            torch.tensor(x, **tensor_opts), torch.tensor(
-                action, **tensor_opts), 0)
+        x = self.state
+        x_next = self.model(torch.tensor(x), torch.tensor(action), 0)
 
         self.state = x_next.detach().cpu().numpy()
         if callable(self.reward_func):
             reward = self.reward_func(
-                torch.tensor(x_next), torch.tensor(action))
+                torch.tensor(x_next),
+                torch.tensor(action)).detach().cpu().numpy()
         else:
             reward = 0
         self.steps += 1
         done = False
 
+        if self.measurement_noise is not None:
+            noise = (self.measurement_noise *
+                     torch.randn_like(x_next)).detach().cpu().numpy()
+            return self.state + noise, reward, done, {}
         return self.state, reward, done, {}
 
 
 class DynamicsModel(torch.nn.Module):
     """Base dynamics model."""
+
+    def __init__(self):
+        super(DynamicsModel, self).__init__()
+        self.solver = None
 
     def reset_parameters(self, initializer=torch.nn.init.normal_):
         """Resets all parameters that require gradients with random values.
@@ -132,7 +144,9 @@ class DynamicsModel(torch.nn.Module):
         Returns:
             Next state distribution (Tensor<..., state_size>).
         """
-
+        # we do numerical integration in doule precision
+        state = state.double()
+        action = action.double()
         if int_method == Integrator.FW_EULER:
             dmean = self.dynamics(state, action, i)
             next_state = state + dmean * self.dt
@@ -153,8 +167,10 @@ class DynamicsModel(torch.nn.Module):
                 z_t = torch.tensor(z_t).to(state.dtype)
                 return self.dynamics(z_t, action, t).detach().double().numpy()
 
-            solver = ode(dyn_fn).set_integrator('dopri5', atol=5e-9, rtol=5e-9)
-            solver = solver.set_initial_value(state.detach().double().numpy())
+            #if self.solver is None:
+            self.solver = ode(dyn_fn).set_integrator(
+                'dopri5', atol=1e-12, rtol=1e-12)
+            solver = self.solver.set_initial_value(state.detach().numpy())
             t = solver.t
             t_end = t + self.dt
             while solver.successful and solver.t < t_end:
