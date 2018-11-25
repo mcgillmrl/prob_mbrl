@@ -48,9 +48,9 @@ class DiagGaussianDensity(StochasticModule):
                 z = self.z
                 noise = z * log_std.exp()
                 # clamp measurement noise to a sane range
-                lim = 2 * Sy
-                noise = torch.max(-lim, torch.min(lim, noise))
-                samples = samples + noise
+                lim = 3 * Sy
+                noise = torch.max(-lim, torch.min(lim, noise)).detach()
+                return samples, noise
             return samples
         else:
             return mean, log_std
@@ -114,9 +114,9 @@ class MixtureDensity(StochasticModule):
                 z2 = self.z_normal
                 noise = z2 * log_std.gather(-1, k).squeeze(-1).exp()
                 # clamp measurement noise to a sane range
-                lim = (2 * Sy).flatten()
-                noise = torch.max(torch.min(noise, lim), -lim)
-                samples = samples + noise
+                lim = (3 * Sy).flatten()
+                noise = torch.max(torch.min(noise, lim), -lim).detach()
+                return samples, noise
             return samples
         else:
             return mean, log_std, logit_pi
