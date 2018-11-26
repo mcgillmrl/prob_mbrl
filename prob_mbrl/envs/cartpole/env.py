@@ -29,7 +29,7 @@ class CartpoleReward(torch.nn.Module):
                  pole_length=0.5,
                  target=torch.tensor([0, 0, np.pi, 0]),
                  Q=16.0 * torch.eye(2),
-                 R=1e-2 * torch.eye(1)):
+                 R=1e-4 * torch.eye(1)):
         super(CartpoleReward, self).__init__()
         self.Q = torch.nn.Parameter(torch.tensor(Q), requires_grad=False)
         self.R = torch.nn.Parameter(torch.tensor(R), requires_grad=False)
@@ -99,7 +99,8 @@ class Cartpole(GymEnv):
         # init parent class
         reward_func = reward_func if callable(reward_func) else CartpoleReward(
             pole_length=model.lp)
-        super(Cartpole, self).__init__(model, reward_func)
+        measurement_noise = 0 * torch.tensor([0.01] * 4)
+        super(Cartpole, self).__init__(model, reward_func, measurement_noise)
 
         # init this class
         high = np.array([10])
@@ -114,14 +115,16 @@ class Cartpole(GymEnv):
         self.observation_space = spaces.Box(-high, high, dtype=np.float32)
 
     def step(self, action):
-        self.state, reward, done, info = super(Cartpole, self).step(action)
+        state, reward, done, info = super(Cartpole, self).step(action)
         if self.state[0] < -3 or self.state[0] > 3:
             done = True
-        return self.state, reward, done, info
+        return state, reward, done, info
 
-    def reset(self, init_state=np.array([0.0, 0.0, 0.0, 0.0])):
-        self.state = init_state
-        self.state += 1e-2 * np.random.randn(*self.state.shape)
+    def reset(self,
+              init_state=np.array([0.0, 0.0, 0.0, 0.0]),
+              init_state_std=2e-1):
+        self.state = init_state + init_state_std * np.random.randn(
+            *init_state.shape)
         return self.state
 
     def render(self, mode="human", N=1):

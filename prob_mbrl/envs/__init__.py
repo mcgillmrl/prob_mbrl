@@ -7,5 +7,6 @@ from prob_mbrl.envs.double_cartpole import DoubleCartpole
 
 __all__ = [
     "LunarLander", "lunar_lander", "Rendezvous", "rendezvous", "Pendulum",
-    "pendulum", "Cartpole", "cartpole", "DoubleCartpole", "double_cartpole"
+    "pendulum", "Cartpole", "cartpole", "DoubleCartpole", "double_cartpole",
+    "CartAcrobot"
 ]

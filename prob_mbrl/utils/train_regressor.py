@@ -1,8 +1,20 @@
+import numpy as np
 import sys
 import torch
-from losses import gaussian_log_likelihood
-from utils import iterate_minibatches
+
+from prob_mbrl.losses import gaussian_log_likelihood
 from tqdm import tqdm
+
+
+def iterate_minibatches(inputs, targets, batchsize):
+    assert len(inputs) == len(targets)
+    N = len(inputs)
+    indices = np.arange(0, N)
+    np.random.shuffle(indices)
+    while True:
+        for i in range(0, len(inputs), batchsize):
+            idx = indices[i:i + batchsize]
+            yield inputs[idx], targets[idx]
 
 
 def custom_pbar(iterable, total):
@@ -46,3 +58,4 @@ def train_regressor(model,
         if i == iters:
             pbar.close()
             break
+    model.eval()

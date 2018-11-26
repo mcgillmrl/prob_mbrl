@@ -66,6 +66,7 @@ class ExperienceDataset(torch.nn.Module):
         self.states.append(states)
         self.actions.append(actions)
         self.rewards.append(rewards)
+        self.curr_episode += 1
 
     def n_samples(self):
         ''' Returns the total number of samples in this dataset '''

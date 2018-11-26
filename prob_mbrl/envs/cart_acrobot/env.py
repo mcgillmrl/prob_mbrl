@@ -30,7 +30,7 @@ class CartAcrobotReward(torch.nn.Module):
                  pole2_length=0.6,
                  target=torch.tensor([0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
                  Q=8.0 * torch.eye(2),
-                 R=1e-3 * torch.eye(1)):
+                 R=1e-4 * torch.eye(1)):
         super(CartAcrobotReward, self).__init__()
         self.Q = torch.nn.Parameter(torch.tensor(Q), requires_grad=False)
         self.R = torch.nn.Parameter(torch.tensor(R), requires_grad=False)
@@ -98,7 +98,9 @@ class CartAcrobot(GymEnv):
         reward_func = reward_func if callable(
             reward_func) else CartAcrobotReward(
                 pole1_length=model.l1, pole2_length=model.l2)
-        super(CartAcrobot, self).__init__(model, reward_func)
+        measurement_noise = torch.tensor([0.01] * 6)
+        super(CartAcrobot, self).__init__(model, reward_func,
+                                          measurement_noise)
 
         # init this class
         high = np.array([5])
@@ -114,9 +116,11 @@ class CartAcrobot(GymEnv):
         ])
         self.observation_space = spaces.Box(-high, high, dtype=np.float32)
 
-    def reset(self):
-        self.state = np.array([0, 0, np.pi, 0, np.pi, 0])
-        self.state += 1e-2 * np.random.randn(*self.state.shape)
+    def reset(self,
+              init_state=np.array([0, 0, np.pi, 0, np.pi, 0]),
+              init_state_std=2e-1):
+        self.state = init_state + init_state_std * np.random.randn(
+            *init_state.shape)
         return self.state
 
     def render(self, mode="human"):

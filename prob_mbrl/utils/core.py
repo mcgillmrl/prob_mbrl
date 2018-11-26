@@ -5,18 +5,7 @@ from collections import Iterable
 from itertools import chain
 from matplotlib import pyplot as plt
 
-from ..algorithms.mc_pilco import rollout
-
-
-def iterate_minibatches(inputs, targets, batchsize):
-    assert len(inputs) == len(targets)
-    N = len(inputs)
-    indices = np.arange(0, N)
-    np.random.shuffle(indices)
-    while True:
-        for i in range(0, len(inputs), batchsize):
-            idx = indices[i:i + batchsize]
-            yield inputs[idx], targets[idx]
+from .rollout import rollout
 
 
 def plot_sample(data, axarr, colors=None, **kwargs):
