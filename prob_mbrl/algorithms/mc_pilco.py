@@ -86,7 +86,7 @@ def mc_pilco(init_states,
         except RuntimeError:
             import traceback
             traceback.print_exc()
-            print "RuntimeError"
+            print("RuntimeError")
             # resample random numbers
             resample()
             policy.zero_grad()

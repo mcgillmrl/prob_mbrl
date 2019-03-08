@@ -1,7 +1,8 @@
-import angles
 import numpy as np
 import os
 import torch
+
+from . import angles
 
 
 class ExperienceDataset(torch.nn.Module):

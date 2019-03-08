@@ -13,7 +13,7 @@ setup(
     license='MIT',
     packages=find_packages(),
     install_requires=[
-        'torch>=0.4.1', 'gym', 'numpy', 'scipy', 'matplotlib', 'dill',
+        'torch>=1.0', 'gym', 'numpy', 'scipy', 'matplotlib', 'dill',
         'tensorboardX'
     ],
 )

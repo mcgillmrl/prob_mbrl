@@ -1,9 +1,9 @@
-from core import (plot_sample, plot_mean_var, plot_trajectories, plot_rollout,
+from .core import (plot_sample, plot_mean_var, plot_trajectories, plot_rollout,
                   batch_jacobian)
-from train_regressor import train_regressor, iterate_minibatches
-from rollout import rollout
-from experience_dataset import ExperienceDataset
-from apply_controller import apply_controller
+from .train_regressor import train_regressor, iterate_minibatches
+from .rollout import rollout
+from .experience_dataset import ExperienceDataset
+from .apply_controller import apply_controller
 from . import (classproperty, angles)
 
 __all__ = [
