@@ -67,7 +67,9 @@ class MixtureDensity(StochasticModule):
         self.register_buffer('z_pi', torch.ones([1, 1]))
 
     def resample(self, *args, **kwargs):
-        self.z_pi.data = torch.rand_like(self.z_pi)
+        u = torch.distributions.utils.clamp_probs(
+                    torch.rand_like(self.z_pi))
+        self.z_pi.data = -(-u.log()).log()
         self.z_normal.data = torch.randn_like(self.z_normal)
 
     def forward(self,
@@ -99,7 +101,9 @@ class MixtureDensity(StochasticModule):
 
         if return_samples:
             if (logit_pi.shape != self.z_pi.shape) or resample_output_noise:
-                self.z_pi.data = -(-torch.rand_like(logit_pi).log()).log()
+                u = torch.distributions.utils.clamp_probs(
+                    torch.rand_like(logit_pi))
+                self.z_pi.data = -(-u.log()).log()
             z1 = self.z_pi
             # replace this sampling operation
             k = (log_softmax(logit_pi, -1) + z1).argmax(-1)
