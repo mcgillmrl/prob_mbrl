@@ -19,7 +19,6 @@ import numpy as np
 import torch
 
 from enum import IntEnum
-from gym.spaces import prng
 from gym.utils import seeding
 from scipy.integrate import ode
 
@@ -56,7 +55,6 @@ class GymEnv(gym.Env):
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
-        prng.seed(seed % (2**32 - 1))
         return [seed]
 
     def step(self, action, grads=False):
