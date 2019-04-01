@@ -21,7 +21,9 @@ def mlp(input_dims,
         biases_initializer=partial(torch.nn.init.uniform_, a=-0.1, b=0.1),
         dropout_layers=BDropout,
         input_dropout=None,
-        spectral_norm=False):
+        spectral_norm=False,
+        spectral_norm_output=False
+        ):
     '''
         Utility function for creating multilayer perceptrons of varying depth.
     '''
@@ -56,7 +58,7 @@ def mlp(input_dims,
 
     # project to output dimensions
     fc_out = torch.nn.Linear(dims[-1], output_dims)
-    if spectral_norm:
+    if spectral_norm_output:
         fc_out = SpectralNorm(fc_out)
     modules['fc_out'] = fc_out
     # add output activation, if specified
