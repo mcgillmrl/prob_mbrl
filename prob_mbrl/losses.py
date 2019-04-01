@@ -18,6 +18,7 @@ def gaussian_log_likelihood(targets, means, log_stds=None):
         This assumes diagonal covariances
     '''
     global HALF_LOG_TWO_PI
+    D = means.shape[-1]
     deltas = means - targets
     # note that if noise is a 1xD vector, broadcasting
     # rules apply
@@ -27,9 +28,9 @@ def gaussian_log_likelihood(targets, means, log_stds=None):
             HALF_LOG_TWO_PI[device_id] = HALF_LOG_TWO_PI['default'].to(
                 targets.device)
         stds = log_stds.exp()
-        lml = -((deltas*stds.reciprocal())**2).sum(-1)*0.5\
+        lml = - 0.5 * ((deltas*stds.reciprocal())**2).sum(-1)\
               - log_stds.sum(-1)\
-              - HALF_LOG_TWO_PI[device_id]
+              - D * HALF_LOG_TWO_PI[device_id]
     else:
         lml = -(deltas**2).sum(-1) * 0.5
 
@@ -45,6 +46,7 @@ def gaussian_mixture_log_likelihood(targets, means, log_stds, logit_pi):
             [batch_size, output_dimensions, n_components]
     '''
     global HALF_LOG_TWO_PI
+    D = means.shape[-2]
     device_id = str(targets.device.type) + str(targets.device.index)
     if device_id not in HALF_LOG_TWO_PI:
         HALF_LOG_TWO_PI[device_id] = HALF_LOG_TWO_PI['default'].to(
@@ -54,7 +56,7 @@ def gaussian_mixture_log_likelihood(targets, means, log_stds, logit_pi):
 
     # weighted probabilities
     stds = log_stds.exp()
-    log_norm = -HALF_LOG_TWO_PI[device_id] - (log_stds).sum(-2)
+    log_norm = -D * HALF_LOG_TWO_PI[device_id] - (log_stds).sum(-2)
     dists = -0.5 * ((deltas * stds.reciprocal())**2).sum(-2)
     log_probs = log_softmax(logit_pi, -1) + log_norm + dists
 

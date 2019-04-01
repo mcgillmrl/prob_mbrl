@@ -112,7 +112,15 @@ class Cartpole(GymEnv):
             2 * np.pi,
             np.finfo(np.float32).max,
         ])
-        self.observation_space = spaces.Box(-high, high, dtype=np.float32)
+        if self.angle_dims is not None:
+            low = angles.to_complex(torch.tensor(-high),
+                                    self.angle_dims).numpy()
+            high = angles.to_complex(torch.tensor(-high),
+                                     self.angle_dims).numpy()
+        else:
+            low = -high
+        self.observation_space = spaces.Box(
+            low=low, high=high, dtype=np.float32)
 
     def step(self, action):
         state, reward, done, info = super(Cartpole, self).step(action)
@@ -125,7 +133,11 @@ class Cartpole(GymEnv):
               init_state_std=2e-1):
         self.state = init_state + init_state_std * np.random.randn(
             *init_state.shape)
-        return self.state
+        state = self.state
+        if self.angle_dims is not None:
+            state = angles.to_complex(torch.tensor(state),
+                                      self.angle_dims).numpy()
+        return state
 
     def render(self, mode="human", N=1):
         N = max(1, N)

@@ -1,7 +1,9 @@
+import copy
 import inspect
+import multiprocessing
 import numpy as np
 import torch
-from .modules import BDropout, BSequential
+from .modules import BDropout, BSequential, SpectralNorm
 from collections import OrderedDict, Iterable
 from functools import partial
 
@@ -18,7 +20,10 @@ def mlp(input_dims,
             gain=torch.nn.init.calculate_gain('relu')),
         biases_initializer=partial(torch.nn.init.uniform_, a=-0.1, b=0.1),
         dropout_layers=BDropout,
-        input_dropout=None):
+        input_dropout=None,
+        spectral_norm=False,
+        spectral_norm_output=False
+        ):
     '''
         Utility function for creating multilayer perceptrons of varying depth.
     '''
@@ -39,17 +44,25 @@ def mlp(input_dims,
         if inspect.isclass(drop_i):
             drop_i = drop_i(name='drop%d' % i)
         # fully connected layer
-        modules['fc%d' % i] = torch.nn.Linear(din, dout)
+        fc = torch.nn.Linear(din, dout)
+        if spectral_norm:
+            fc = SpectralNorm(fc)
+        modules['fc%d' % i] = fc
+
         # activation
-        modules['nonlin%d' % i] = nonlin()
+        if callable(nonlin):
+            modules['nonlin%d' % i] = nonlin()
         # dropout (regularizes next layer)
         if drop_i is not None:
             modules['drop%d' % i] = drop_i
 
     # project to output dimensions
-    modules['fc_out'] = torch.nn.Linear(dims[-1], output_dims)
+    fc_out = torch.nn.Linear(dims[-1], output_dims)
+    if spectral_norm_output:
+        fc_out = SpectralNorm(fc_out)
+    modules['fc_out'] = fc_out
     # add output activation, if specified
-    if output_nonlin is not None:
+    if callable(output_nonlin):
         modules['fc_nonlin'] = output_nonlin()
 
     # build module
@@ -71,6 +84,25 @@ def mlp(input_dims,
 
         net.apply(fn)
     return net
+
+
+class ModelEnsemble(torch.nn.Module):
+    def __init__(self, model, N_ensemble=5):
+        super(ModelEnsemble, self).__init__()
+        self.N_ensemble = N_ensemble
+        for i in range(N_ensemble):
+            setattr(self, 'model_%d' % i, copy.deepcopy(model))
+
+    def f(self, args):
+        x, i, args, kwargs = args
+        model = getattr(self, 'model_%d' % i)
+        return model(x, *args, **kwargs)
+
+    def forward(self, x, *args, **kwargs):
+        pool = multiprocessing.Pool(processes=3)
+        ret = pool.map(self.f)
+        pool.close
+        return ret
 
 
 class Regressor(torch.nn.Module):
@@ -142,7 +174,7 @@ class Policy(torch.nn.Module):
             x = torch.tensor(
                 x, dtype=self.scale.dtype, device=self.scale.device)
         else:
-            x = x.to(self.scale.device)
+            x = x.to(dtype=self.scale.dtype, device=self.scale.device)
         x = to_complex(x, self.angle_dims)
         u = self.scale * self.model(x, **kwargs) + self.bias
         if return_numpy:

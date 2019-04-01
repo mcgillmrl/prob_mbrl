@@ -101,6 +101,23 @@ def plot_rollout(x0, forward, pol, steps):
     plot_trajectories(states, actions, rewards)
 
 
+def jacobian(y, x, **kwargs):
+    """Evaluates the jacobian of y w.r.t x safely.
+
+    Args:
+        y (Tensor<m>): Tensor to differentiate.
+        x (Tensor<n>): Tensor to differentiate with respect to.
+        **kwargs: Additional key-word arguments to pass to `grad()`.
+
+    Returns:
+        Jacobian (Tensor<m, n>).
+    """
+    J = [torch.autograd.grad(y[i], x, **kwargs)[0] for i in range(y.shape[0])]
+    J = torch.stack(J)
+    J.requires_grad_()
+    return J
+
+
 def batch_jacobian(f, x, out_dims=None):
     if out_dims is None:
         y = f(x)

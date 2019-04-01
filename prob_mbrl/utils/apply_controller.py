@@ -28,12 +28,12 @@ def apply_controller(env,
         policy(np.zeros((policy.D, )))
 
     # start robot
-    print fnname, 'Starting run'
+    print(fnname, 'Starting run')
     if hasattr(env, 'dt'):
         H = max_steps * env.dt
-        print fnname, 'Running for %f seconds' % (H)
+        print(fnname, 'Running for %f seconds' % (H))
     else:
-        print fnname, 'Running for %d steps' % (max_steps)
+        print(fnname, 'Running for %d steps' % (max_steps))
     x_t = env.reset()
 
     # data corresponds to state at time t, action at time t, reward after
@@ -83,7 +83,7 @@ def apply_controller(env,
     if all([v is not None for v in costs]):
         run_value = np.array(costs).sum()
         msg += ' Value of run [%f]' % run_value
-    print fnname, msg
+    print(fnname, msg)
 
     # stop robot
     if hasattr(env, 'stop'):

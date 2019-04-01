@@ -36,7 +36,7 @@ def train_regressor(model,
                     pbar_class=tqdm):
     X = (model.X - model.mx) * model.iSx
     Y = (model.Y - model.my) * model.iSy
-    N = torch.tensor(X).shape[0]
+    N = X.shape[0]
     M = batchsize
     model.train()
 

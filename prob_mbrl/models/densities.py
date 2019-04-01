@@ -26,11 +26,10 @@ class DiagGaussianDensity(StochasticModule):
                 output_noise=True,
                 resample_output_noise=True,
                 **kwargs):
-        D = self.output_dims
+        D = int(self.output_dims)
         mean, log_std = x.split(D, -1)
 
         # scale and center outputs
-        Sy = 0.1
         if scaling_params is not None and len(scaling_params) > 0:
             if len(scaling_params) == 2:
                 my = scaling_params[0]
@@ -40,6 +39,7 @@ class DiagGaussianDensity(StochasticModule):
             else:
                 warnings.warn(
                     "Expected scaling_params as tuple or list with 2 elements")
+
         if return_samples:
             samples = mean
             if output_noise:
@@ -47,9 +47,6 @@ class DiagGaussianDensity(StochasticModule):
                     self.z.data = torch.randn_like(mean)
                 z = self.z
                 noise = z * log_std.exp()
-                # clamp measurement noise to a sane range
-                lim = 3 * Sy
-                noise = torch.max(-lim, torch.min(lim, noise)).detach()
                 return samples, noise
             return samples
         else:
@@ -70,7 +67,9 @@ class MixtureDensity(StochasticModule):
         self.register_buffer('z_pi', torch.ones([1, 1]))
 
     def resample(self, *args, **kwargs):
-        self.z_pi.data = torch.rand_like(self.z_pi)
+        u = torch.distributions.utils.clamp_probs(
+                    torch.rand_like(self.z_pi))
+        self.z_pi.data = -(-u.log()).log()
         self.z_normal.data = torch.randn_like(self.z_normal)
 
     def forward(self,
@@ -79,16 +78,17 @@ class MixtureDensity(StochasticModule):
                 return_samples=False,
                 output_noise=True,
                 resample_output_noise=True,
+                temperature=1.0,
                 **kwargs):
-        D = self.output_dims
+        D = int(self.output_dims)
         nD = D * self.n_components
         # the output shape is [batch_size, output_dimensions, n_components]
         mean, log_std, logit_pi = x.split(nD, -1)
         mean = mean.view(-1, D, self.n_components)
         log_std = log_std.view(-1, D, self.n_components)
+        logit_pi = logit_pi / temperature
 
         # scale and center outputs
-        Sy = 0.1
         if scaling_params is not None and len(scaling_params) > 0:
             if len(scaling_params) == 2:
                 my = scaling_params[0].unsqueeze(-1)
@@ -98,9 +98,12 @@ class MixtureDensity(StochasticModule):
             else:
                 warnings.warn(
                     "Expected scaling_params as tuple or list with 2 elements")
+
         if return_samples:
             if (logit_pi.shape != self.z_pi.shape) or resample_output_noise:
-                self.z_pi.data = -(-torch.rand_like(logit_pi).log()).log()
+                u = torch.distributions.utils.clamp_probs(
+                    torch.rand_like(logit_pi))
+                self.z_pi.data = -(-u.log()).log()
             z1 = self.z_pi
             # replace this sampling operation
             k = (log_softmax(logit_pi, -1) + z1).argmax(-1)
@@ -113,9 +116,7 @@ class MixtureDensity(StochasticModule):
                         *mean.shape[:-1], device=mean.device)
                 z2 = self.z_normal
                 noise = z2 * log_std.gather(-1, k).squeeze(-1).exp()
-                # clamp measurement noise to a sane range
-                lim = (3 * Sy).flatten()
-                noise = torch.max(torch.min(noise, lim), -lim).detach()
+
                 return samples, noise
             return samples
         else:

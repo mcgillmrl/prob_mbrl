@@ -59,7 +59,7 @@ def rollout(states,
             deltas = next_states - m
             jitter = 1e-12 * torch.eye(m.shape[-1], device=m.device)
             S = deltas.t().mm(deltas) / (M - 1) + jitter
-            L = S.potrf()
+            L = S.cholesky()
             if infer_noise_variables:
                 z1 = torch.mm(deltas, L.inverse()).detach()
             else:
@@ -74,7 +74,7 @@ def rollout(states,
             deltas = rewards - m
             jitter = 1e-12 * torch.eye(m.shape[-1], device=m.device)
             S = deltas.t().mm(deltas) / (M - 1) + jitter
-            L = S.potrf()
+            L = S.cholesky()
             if infer_noise_variables:
                 z2 = torch.mm(deltas, L.inverse()).detach()
             else:
