@@ -93,7 +93,9 @@ class DoubleCartpole(GymEnv):
         "video.frames_per_second": 50,
     }
 
-    def __init__(self, model=DoubleCartpoleModel(), reward_func=None):
+    def __init__(self, model=None, reward_func=None):
+        if model is None:
+            model = DoubleCartpoleModel()
         # init parent class
         reward_func = reward_func if callable(
             reward_func) else DoubleCartpoleReward(
@@ -117,7 +119,7 @@ class DoubleCartpole(GymEnv):
         if self.angle_dims is not None:
             low = angles.to_complex(torch.tensor(-high),
                                     self.angle_dims).numpy()
-            high = angles.to_complex(torch.tensor(-high),
+            high = angles.to_complex(torch.tensor(high),
                                      self.angle_dims).numpy()
         else:
             low = -high
@@ -127,13 +129,7 @@ class DoubleCartpole(GymEnv):
     def reset(self,
               init_state=np.array([0, 0, np.pi, 0, np.pi, 0]),
               init_state_std=2e-1):
-        self.state = init_state + init_state_std * np.random.randn(
-            *init_state.shape)
-        state = self.state
-        if self.angle_dims is not None:
-            state = angles.to_complex(torch.tensor(state),
-                                      self.angle_dims).numpy()
-        return state
+        return super(DoubleCartpole, self). reset(init_state, init_state_std)
 
     def render(self, mode="human"):
         screen_width = 1000
@@ -159,6 +155,7 @@ class DoubleCartpole(GymEnv):
             from gym.envs.classic_control import rendering
 
             self.viewer = rendering.Viewer(screen_width, screen_height)
+            self.viewer.window.set_vsync(False)
 
             l, r, t, b = (-cartwidth / 2, cartwidth / 2, cartheight / 2,
                           -cartheight / 2)

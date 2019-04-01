@@ -57,14 +57,14 @@ class GymEnv(gym.Env):
         self.np_random, seed = seeding.np_random(seed)
         return [seed]
 
-    def step(self, action, grads=False):
+    def step(self, action, grads=False, **kwargs):
         x = torch.tensor(self.state)
         u = torch.tensor(action)
         if grads:
-            x_next = self.model(x, u, 0)
+            x_next = self.model(x, u, 0, **kwargs)
         else:
             with torch.no_grad():
-                x_next = self.model(x, u, 0)
+                x_next = self.model(x, u, 0, **kwargs)
 
         self.state = x_next.detach().cpu().numpy()
 
@@ -92,6 +92,16 @@ class GymEnv(gym.Env):
         state = state.detach().cpu().numpy()
         return state, reward, done, {}
 
+    def reset(self, init_state, init_state_std):
+        self.state = init_state + init_state_std * np.random.randn(
+            *init_state.shape)
+        state = self.state
+        if self.angle_dims is not None:
+            state = to_complex(torch.tensor(state),
+                                      self.angle_dims).numpy()
+        self.model.reset()
+        return state
+
 
 class DynamicsModel(torch.nn.Module):
     """Base dynamics model."""
@@ -114,6 +124,10 @@ class DynamicsModel(torch.nn.Module):
             if p.requires_grad:
                 initializer(p)
         return self
+
+    def reset(self):
+        """ Resets the internal state of the solver """
+        self.solver = None 
 
     @classproperty
     def action_size(cls):
@@ -148,7 +162,7 @@ class DynamicsModel(torch.nn.Module):
             derivatives of current state wrt to time (Tensor<..., state_size>).
         """
         raise NotImplementedError
-
+    
     def forward(self, state, action, i, int_method=Integrator.DOPRI5,
                 **kwargs):
         """Dynamics model function.

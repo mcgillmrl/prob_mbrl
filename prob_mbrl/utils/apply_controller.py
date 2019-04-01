@@ -74,7 +74,7 @@ def apply_controller(env,
 
         exec_time = time.time() - t_
         if realtime:
-            time.sleep(max(0.75 * dt - exec_time, 0))
+            time.sleep(max(dt - exec_time, 0))
         t_ = time.time()
 
     states, actions, costs, infos = zip(*data)

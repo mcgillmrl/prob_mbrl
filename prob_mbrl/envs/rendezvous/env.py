@@ -53,7 +53,9 @@ class Rendezvous(GymEnv):
         "video.frames_per_second": 30,
     }
 
-    def __init__(self, model=RendezvousModel(), reward_func=None):
+    def __init__(self, model=None, reward_func=None):
+        if model is None:
+            model = RendezvousModel()
         # init parent class
         reward_func = reward_func if callable(
             reward_func) else RendezvousReward()
@@ -68,17 +70,16 @@ class Rendezvous(GymEnv):
 
     def reset(self,
               init_state=np.array(
-                  [-10.0, -10.0, 10.0, 10.0, 0.0, -0.0, 0.0, 0.0])):
-        self.state = init_state
-        self.state += 1e-2 * np.random.randn(*self.state.shape)
-        self.steps = 0
-        return self.state
+                  [-10.0, -10.0, 10.0, 10.0, 0.0, -0.0, 0.0, 0.0]),
+              init_state_std=1e-2):
+        return super(DoubleCartpole, self). reset(init_state, init_state_std)
 
     def render(self, mode="human"):
         if self.viewer is None:
             from gym.envs.classic_control import rendering
 
             self.viewer = rendering.Viewer(500, 500)
+            self.viewer.window.set_vsync(False)
             self.viewer.set_bounds(-15.0, 15.0, -15.0, 15.0)
 
             vehicle_0 = rendering.make_circle(0.5)

@@ -88,7 +88,9 @@ class Pendulum(GymEnv):
         "video.frames_per_second": 30,
     }
 
-    def __init__(self, model=PendulumModel(), reward_func=None):
+    def __init__(self, model=None, reward_func=None):
+        if model is None:
+            model = PendulumModel()
         # init parent class
         reward_func = reward_func if callable(reward_func) else PendulumReward(
             pole_length=model.l)
@@ -103,7 +105,7 @@ class Pendulum(GymEnv):
         if self.angle_dims is not None:
             low = angles.to_complex(torch.tensor(-high),
                                     self.angle_dims).numpy()
-            high = angles.to_complex(torch.tensor(-high),
+            high = angles.to_complex(torch.tensor(high),
                                      self.angle_dims).numpy()
         else:
             low = -high
@@ -111,19 +113,14 @@ class Pendulum(GymEnv):
             low=low, high=high, dtype=np.float32)
 
     def reset(self, init_state=np.array([0.0, 0.0]), init_state_std=2e-1):
-        self.state = init_state + init_state_std * np.random.randn(
-            *init_state.shape)
-        state = self.state
-        if self.angle_dims is not None:
-            state = angles.to_complex(torch.tensor(state),
-                                      self.angle_dims).numpy()
-        return state
+        return super(Pendulum, self). reset(init_state, init_state_std)
 
     def render(self, mode="human"):
         if self.viewer is None:
             from gym.envs.classic_control import rendering
 
             self.viewer = rendering.Viewer(500, 500)
+            self.viewer.window.set_vsync(False)
             self.viewer.set_bounds(-2.2, 2.2, -2.2, 2.2)
 
             rod = rendering.make_capsule(1.0 * self.model.l,

@@ -251,7 +251,7 @@ class LunarLander(gym.Env, EzPickle):
         while self.particles and (all or self.particles[0].ttl < 0):
             self.world.DestroyBody(self.particles.pop(0))
 
-    def step(self, action):
+    def step(self, action, **kwargs):
         if self.continuous:
             action = np.clip(action, -1, +1).astype(np.float32)
         else:
