@@ -147,7 +147,7 @@ if __name__ == '__main__':
         utils.plot_rollout(x0, dyn, pol, H)
 
         # train policy
-        print "Policy search iteration %d" % (ps_it + 1)
+        print("Policy search iteration %d" % (ps_it + 1))
         algorithms.mc_pilco(
             x0,
             dyn,
