@@ -97,8 +97,7 @@ class GymEnv(gym.Env):
             *init_state.shape)
         state = self.state
         if self.angle_dims is not None:
-            state = to_complex(torch.tensor(state),
-                                      self.angle_dims).numpy()
+            state = to_complex(torch.tensor(state), self.angle_dims).numpy()
         self.model.reset()
         return state
 
@@ -127,7 +126,7 @@ class DynamicsModel(torch.nn.Module):
 
     def reset(self):
         """ Resets the internal state of the solver """
-        self.solver = None 
+        self.solver = None
 
     @classproperty
     def action_size(cls):
@@ -162,7 +161,7 @@ class DynamicsModel(torch.nn.Module):
             derivatives of current state wrt to time (Tensor<..., state_size>).
         """
         raise NotImplementedError
-    
+
     def forward(self, state, action, i, int_method=Integrator.DOPRI5,
                 **kwargs):
         """Dynamics model function.
@@ -199,7 +198,7 @@ class DynamicsModel(torch.nn.Module):
 
             if self.solver is None:
                 self.solver = ode(dyn_fn).set_integrator(
-                    'dopri5', atol=1e-12, rtol=1e-12)
+                    'dopri5', atol=1e-9, rtol=1e-9)
             solver = self.solver.set_initial_value(state.detach().numpy())
             t = solver.t
             t_end = t + self.dt
