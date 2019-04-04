@@ -41,6 +41,10 @@ class CartpoleReward(torch.nn.Module):
             torch.tensor(pole_length), requires_grad=False)
 
     def forward(self, x, u):
+        if not isinstance(x, torch.Tensor):
+            x = torch.tensor(x)
+        if not isinstance(u, torch.Tensor):
+            u = torch.tensor(u)
         x = x.to(device=self.Q.device, dtype=self.Q.dtype)
         u = u.to(device=self.Q.device, dtype=self.Q.dtype)
         if x.dim() == 1:
@@ -125,7 +129,8 @@ class Cartpole(GymEnv):
             low=low, high=high, dtype=np.float32)
 
     def step(self, action, **kwargs):
-        state, reward, done, info = super(Cartpole, self).step(action, **kwargs)
+        state, reward, done, info = super(Cartpole, self).step(
+            action, **kwargs)
         if self.state[0] < -3 or self.state[0] > 3:
             done = True
         return state, reward, done, info
@@ -133,7 +138,7 @@ class Cartpole(GymEnv):
     def reset(self,
               init_state=np.array([0.0, 0.0, 0.0, 0.0]),
               init_state_std=2e-1):
-        return super(Cartpole, self). reset(init_state, init_state_std)
+        return super(Cartpole, self).reset(init_state, init_state_std)
 
     def render(self, mode="human", N=1):
         N = max(1, N)

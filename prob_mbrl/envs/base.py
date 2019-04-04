@@ -45,6 +45,7 @@ class GymEnv(gym.Env):
 
         self.seed()
         self.viewer = None
+        self._viewers = {}
         self.state = None
         self.reward_func = reward_func
         self.steps = 0
@@ -58,15 +59,17 @@ class GymEnv(gym.Env):
         return [seed]
 
     def step(self, action, grads=False, **kwargs):
-        x = torch.tensor(self.state)
-        u = torch.tensor(action)
         if grads:
+            x = torch.tensor(self.state)
+            u = torch.tensor(action)
             x_next = self.model(x, u, 0, **kwargs)
+            self.state = x_next.detach().cpu().numpy()
         else:
+            x = self.state
+            u = action
             with torch.no_grad():
                 x_next = self.model(x, u, 0, **kwargs)
-
-        self.state = x_next.detach().cpu().numpy()
+                self.state = x_next
 
         if callable(self.reward_func):
             if grads:
@@ -82,14 +85,21 @@ class GymEnv(gym.Env):
         # post process state
         state = x_next
         if self.measurement_noise is not None:
-            self.measurement_noise = self.measurement_noise.to(
-                x_next.device, x_next.dtype)
-            noise = self.measurement_noise * torch.randn_like(x_next)
+            if isinstance(x_next, torch.Tensor):
+                self.measurement_noise = self.measurement_noise.to(
+                    x_next.device, x_next.dtype)
+                noise = self.measurement_noise * torch.randn_like(x_next)
+            else:
+                noise = self.measurement_noise.numpy() * np.random.randn(
+                    *x_next.shape)
             state = state + noise
 
         if self.angle_dims is not None:
             state = to_complex(state, self.angle_dims)
-        state = state.detach().cpu().numpy()
+
+        if isinstance(state, torch.Tensor):
+            state = state.detach().cpu().numpy()
+
         return state, reward, done, {}
 
     def reset(self, init_state, init_state_std):
@@ -193,17 +203,23 @@ class DynamicsModel(torch.nn.Module):
         elif int_method == Integrator.DOPRI5:
             # note that this is not currently differentiable
             def dyn_fn(t, z_t):
-                z_t = torch.tensor(z_t).to(state.dtype)
-                return self.dynamics(z_t, action, t).detach().numpy()
+                return self.dynamics(z_t, action, t)
 
             if self.solver is None:
                 self.solver = ode(dyn_fn).set_integrator(
                     'dopri5', atol=1e-9, rtol=1e-9)
-            solver = self.solver.set_initial_value(state.detach().numpy())
+            if isinstance(state, torch.Tensor):
+                state_ = state.detach().numpy()
+            else:
+                state_ = state
+            solver = self.solver.set_initial_value(state_)
             t = solver.t
             t_end = t + self.dt
             while solver.successful and solver.t < t_end:
                 solver.integrate(solver.t + self.dt)
-            next_state = torch.tensor(solver.y).to(state.dtype)
+
+            next_state = solver.y
+            if isinstance(state, torch.Tensor):
+                next_state = torch.tensor(next_state).to(state.dtype)
 
         return next_state

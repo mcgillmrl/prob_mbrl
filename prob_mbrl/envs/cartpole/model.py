@@ -14,6 +14,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>
 """Cartpole dynamics model."""
 
+import numpy as np
 import torch
 from torch.nn import Parameter
 
@@ -92,19 +93,31 @@ class CartpoleModel(DynamicsModel):
         Returns:
             derivatives of current state wrt to time (Tensor<..., state_size>).
         """
-        mc = self.mc
-        mp = self.mp
-        lp = self.lp
-        mu = self.mu
-        g = self.g
+
+        if not torch.is_grad_enabled():
+            if isinstance(z, torch.Tensor):
+                z = z.detach().numpy()
+            if isinstance(u, torch.Tensor):
+                u = u.detach().numpy()
+            mc = self.mc.numpy()
+            mp = self.mp.numpy()
+            lp = self.lp.numpy()
+            mu = self.mu.numpy()
+            g = self.g.numpy()
+        else:
+            mc = self.mc
+            mp = self.mp
+            lp = self.lp
+            mu = self.mu
+            g = self.g
 
         x_dot = z[..., 1]
         theta = z[..., 2]
         theta_dot = z[..., 3]
         F = u[..., 0]
 
-        sin_theta = theta.sin()
-        cos_theta = theta.cos()
+        sin_theta = theta.sin() if torch.is_grad_enabled() else np.sin(theta)
+        cos_theta = theta.cos() if torch.is_grad_enabled() else np.cos(theta)
 
         a0 = mp * lp * theta_dot**2 * sin_theta
         a1 = g * sin_theta
@@ -114,6 +127,13 @@ class CartpoleModel(DynamicsModel):
         theta_dot_dot = -3 * (a0 * cos_theta + 2 * (
             (mc + mp) * a1 + a2 * cos_theta)) / (lp * a3)
         x_dot_dot = (2 * a0 + 3 * mp * a1 * cos_theta + 4 * a2) / a3
+        if not torch.is_grad_enabled():
+            dz = np.zeros_like(z)
+            dz[..., 0] = x_dot
+            dz[..., 1] = x_dot_dot
+            dz[..., 2] = theta_dot
+            dz[..., 3] = theta_dot_dot
+            return dz
 
         return torch.stack([x_dot, x_dot_dot, theta_dot, theta_dot_dot],
                            dim=-1)

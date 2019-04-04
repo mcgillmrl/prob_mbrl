@@ -45,7 +45,7 @@ drop_rate = 0.25
 odims = 1
 n_components = 5
 N_ensemble = 100
-use_cuda = True
+use_cuda = False
 
 # single gaussian output model
 model = models.Regressor(
@@ -109,10 +109,10 @@ if use_cuda and torch.cuda.is_available():
 print(('Dataset size:', train_x.shape[0], 'samples'))
 
 utils.train_regressor(
-    model, iters=4000, batchsize=N_ensemble, resample=True, optimizer=opt1)
+    model, iters=10000, batchsize=N_ensemble, resample=True, optimizer=opt1)
 utils.train_regressor(
     mmodel,
-    iters=4000,
+    iters=10000,
     batchsize=N_ensemble,
     resample=True,
     optimizer=opt2,
