@@ -87,6 +87,23 @@ class CartpoleReward(torch.nn.Module):
         return reward
 
 
+class CartpoleReward2(torch.nn.Module):
+    def __init__(self):
+        super(CartpoleReward, self).__init__()
+
+    def forward(self, x, u, k1=1.0, k2=0.2, w=1.0, v=1.0, a=0.1):
+        angle = x[..., 2]
+        pos = x[..., 0]
+        if isinstance(x, torch.Tensor):
+            rc = pos.abs()
+            rp = w * angle**2 + v * (angle + a).log()
+        else:
+            rc = np.abs(pos)
+            rp = w * angle**2 + v * np.log(angle + a)
+
+        return -k1 * rp - k2 * rc + 10.0
+
+
 class Cartpole(GymEnv):
     """Open AI gym cartpole environment.
 
@@ -128,10 +145,16 @@ class Cartpole(GymEnv):
         self.observation_space = spaces.Box(
             low=low, high=high, dtype=np.float32)
 
-    def step(self, action, **kwargs):
+    def step(self,
+             action,
+             x_lim=[-2.0, 2.0],
+             ang_lim=[-4 * np.pi, 4 * np.pi],
+             **kwargs):
         state, reward, done, info = super(Cartpole, self).step(
             action, **kwargs)
-        if self.state[0] < -3 or self.state[0] > 3:
+        if self.state[0] < x_lim[0] or self.state[0] > x_lim[1]:
+            done = True
+        if self.state[2] < ang_lim[0] or self.state[2] > ang_lim[1]:
             done = True
         return state, reward, done, info
 
@@ -148,10 +171,10 @@ class Cartpole(GymEnv):
         world_width = 2.5
         scale = screen_width / world_width
         carty = 100  # TOP OF CART
-        polewidth = 10.0 * (self.model.mp / 0.5)
+        polewidth = 10.0 * (self.model.mp / 0.5)**0.5
         polelen = scale * self.model.lp
-        cartwidth = 50.0 * torch.sqrt(self.model.mc / 0.5)
-        cartheight = 30.0 * torch.sqrt(self.model.mc / 0.5)
+        cartwidth = 50.0 * (self.model.mc / 0.5)**0.25
+        cartheight = 30.0 * (self.model.mc / 0.5)**0.25
 
         if self.state is None:
             return None
