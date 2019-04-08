@@ -118,6 +118,7 @@ class DynamicsModel(torch.nn.Module):
     def __init__(self):
         super(DynamicsModel, self).__init__()
         self.solver = None
+        self.action = None
 
     def reset_parameters(self, initializer=torch.nn.init.normal_):
         """Resets all parameters that require gradients with random values.
@@ -185,6 +186,7 @@ class DynamicsModel(torch.nn.Module):
         Returns:
             Next state distribution (Tensor<..., state_size>).
         """
+        self.action = action
         # we do numerical integration in doule precision
         if int_method == Integrator.FW_EULER:
             dmean = self.dynamics(state, action, i)
@@ -202,12 +204,14 @@ class DynamicsModel(torch.nn.Module):
             next_state = state + (d1 + 2 * d2 + 2 * d3 + d4) * (self.dt / 6)
         elif int_method == Integrator.DOPRI5:
             # note that this is not currently differentiable
-            def dyn_fn(t, z_t):
-                return self.dynamics(z_t, action, t)
-
             if self.solver is None:
+
+                def dyn_fn(t, z_t):
+                    return self.dynamics(z_t, self.action, t)
+
                 self.solver = ode(dyn_fn).set_integrator(
                     'dopri5', atol=1e-9, rtol=1e-9)
+
             if isinstance(state, torch.Tensor):
                 state_ = state.detach().numpy()
             else:
