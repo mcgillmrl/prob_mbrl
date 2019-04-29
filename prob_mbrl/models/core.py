@@ -22,8 +22,7 @@ def mlp(input_dims,
         dropout_layers=BDropout,
         input_dropout=None,
         spectral_norm=False,
-        spectral_norm_output=False
-        ):
+        spectral_norm_output=False):
     '''
         Utility function for creating multilayer perceptrons of varying depth.
     '''

@@ -28,7 +28,7 @@ def mc_pilco(init_states,
         discount_factor = discount
         discount = lambda i: discount_factor**i  # noqa: E731
 
-    msg = "Accumulated rewards: %f" if maximize else "Accumulated costs: %f"
+    msg = "Cumm. rewards: %f" if maximize else "Cumm. costs: %f"
     if opt is None:
         params = filter(lambda p: p.requires_grad, policy.parameters())
         opt = torch.optim.Adam(params)
@@ -46,9 +46,8 @@ def mc_pilco(init_states,
         z_mm.normal_()
         z_rr.normal_()
 
-    if pegasus:
-        # sample initial random numbers
-        resample()
+    # sample initial random numbers
+    resample()
 
     x0 = init_states
     states = [init_states] * 2
@@ -60,7 +59,7 @@ def mc_pilco(init_states,
         policy.zero_grad()
         dynamics.zero_grad()
         opt.zero_grad()
-        if not pegasus or (i + (opt_iters / 10)) % (opt_iters / 2) == 0:
+        if not pegasus or i % (opt_iters / 2) == 1:
             resample()
 
         # rollout policy
@@ -75,8 +74,8 @@ def mc_pilco(init_states,
                 resample_action_noise=not pegasus,
                 mm_states=mm_states,
                 mm_rewards=mm_rewards,
-                z_mm=z_mm if not pegasus else None,
-                z_rr=z_rr if not pegasus else None)
+                z_mm=z_mm if pegasus else None,
+                z_rr=z_rr if pegasus else None)
             states, actions, rewards = (torch.stack(x) for x in zip(*trajs))
             if debug and i % 100 == 0:
                 plot_trajectories(
@@ -114,9 +113,11 @@ def mc_pilco(init_states,
         # update parameters
         opt.step()
         if maximize:
-            pbar.set_description(msg % (-loss))
+            pbar.set_description((msg % (-loss)) +
+                                 ' [{0}]'.format(len(rewards)))
         else:
-            pbar.set_description(msg % (loss))
+            pbar.set_description((msg % (loss)) +
+                                 ' [{0}]'.format(len(rewards)))
 
         if callable(on_iteration):
             on_iteration(i, loss, states, actions, rewards, opt, policy,
@@ -167,8 +168,7 @@ class MCPILCOAgent(torch.nn.Module):
         '''
         dynamics = self.dyn
         policy = self.pol
-        msg = ("Accumulated rewards: %f"
-               if maximize else "Accumulated costs: %f")
+        msg = ("Cumm. rewards: %f" if maximize else "Cumm. costs: %f")
         if opt is None:
             params = filter(lambda p: p.requires_grad, policy.parameters())
             opt = torch.optim.Adam(params)
@@ -253,7 +253,8 @@ class MCPILCOAgent(torch.nn.Module):
 
                 # update parameters
                 opt.step()
-                pbar.set_description(msg % (loss0))
+                pbar.set_description((msg % (loss0)) +
+                                     ' [{0}]'.format(len(rewards)))
 
                 if callable(on_iteration):
                     on_iteration(i, loss, states, actions, rewards, opt,

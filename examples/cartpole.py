@@ -11,8 +11,8 @@ torch.set_num_threads(1)
 
 if __name__ == '__main__':
     # parameters
-    n_rnd = 4
-    H = 40
+    n_rnd = 1
+    H = 25
     N_particles = 100
     dyn_components = 1
     dyn_hidden = [200] * 2
@@ -52,7 +52,7 @@ if __name__ == '__main__':
         dynE,
         dyn_hidden,
         dropout_layers=[
-            models.modules.CDropout(0.5, 0.1) for i in range(len(dyn_hidden))
+            models.modules.CDropout(0.1, 0.1) for i in range(len(dyn_hidden))
         ],
         nonlin=torch.nn.ReLU)
     dyn = models.DynamicsModel(
@@ -81,7 +81,7 @@ if __name__ == '__main__':
     opt1 = torch.optim.Adam(dyn.parameters(), 1e-4)
 
     # initialize policy optimizer
-    opt2 = torch.optim.Adam(pol.parameters(), 1e-4)
+    opt2 = torch.optim.Adam(pol.parameters(), 1e-3)
 
     if use_cuda and torch.cuda.is_available():
         dyn = dyn.cuda()
@@ -158,7 +158,7 @@ if __name__ == '__main__':
             1000,
             pegasus=True,
             mm_states=True,
-            mm_rewards=False,
+            mm_rewards=True,
             maximize=True,
             clip_grad=1.0)
         utils.plot_rollout(x0, dyn, pol, H)
