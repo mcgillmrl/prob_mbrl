@@ -54,7 +54,7 @@ if __name__ == '__main__':
         dropout_layers=[
             models.modules.CDropout(0.1, 0.1) for i in range(len(dyn_hidden))
         ],
-        nonlin=torch.nn.ReLU)
+        nonlin=torch.nn.Tanh)
     dyn = models.DynamicsModel(
         dyn_model, reward_func=reward_func,
         output_density=output_density).float()
@@ -67,7 +67,7 @@ if __name__ == '__main__':
         dropout_layers=[
             models.modules.BDropout(0.1) for i in range(len(pol_hidden))
         ],
-        nonlin=torch.nn.ReLU,
+        nonlin=torch.nn.Tanh,
         weights_initializer=torch.nn.init.xavier_normal_,
         biases_initializer=None,
         output_nonlin=torch.nn.Tanh)
