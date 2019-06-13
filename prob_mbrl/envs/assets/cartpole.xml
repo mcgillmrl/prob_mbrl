@@ -1,0 +1,33 @@
+<mujoco model="inverted pendulum">
+	<compiler inertiafromgeom="true"/>
+	<visual>
+    	<headlight ambient=".4 .4 .4" diffuse=".8 .8 .8" specular="0.1 0.1 0.1"/>
+    	<map znear=".01"/>
+    	<quality shadowsize="2048"/>
+    </visual>
+	<default>
+		<geom contype="0" friction="1 0.1 0.1" rgba="0.7 0.7 0 1"/>
+		<tendon/>
+		<motor ctrlrange="-3 3"/>
+	</default>
+	<option gravity="0 0 -9.81" integrator="RK4" timestep="0.01"/>
+	<size nstack="3000"/>
+	<worldbody>
+		<light name="light" pos="0 0 5"/>
+    	<camera name="fixed" pos="0 -4 0" zaxis="0 -1 0"/>
+    	<camera name="lookatcart" mode="targetbody" target="cart" pos="0 -2 2"/>
+		<geom name="floor" pos="0 0 -2" size="4 4 .2" type="plane" rgba="0.3 0.3 0.7 1"/>
+		<geom name="rail" pos="0 0 0" quat="0.707 0 0.707 0" rgba="0.3 0.3 0.7 1" size="0.02 2" type="capsule"/>
+		<body name="cart" pos="0 0 0">
+			<joint axis="1 0 0" limited="true" name="slider" pos="0 0 0" range="-2 2" type="slide"/>
+			<geom name="cart" type="box" size="0.2 0.15 0.05" mass="0.5"/>
+			<body name="pole" pos="0 0 0">
+				<joint name="hinge" type="hinge" axis="0 1 0"  damping="2e-6"/>
+      			<geom name="pole" type="capsule" fromto="0 0 0 0 0 2" size="0.045" mass="0.5" rgba="0 0.7 0.7 1"/>
+			</body>
+		</body>
+	</worldbody>
+	<actuator>
+		<motor name="slide" joint="slider" gear="10" ctrllimited="true" ctrlrange="-1 1" />
+	</actuator>
+</mujoco>

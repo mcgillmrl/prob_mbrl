@@ -63,8 +63,7 @@ class CDropout(BDropout):
                  **kwargs):
         super(CDropout, self).__init__(rate, name, regularizer_scale, **kwargs)
         self.register_buffer('temp', torch.tensor(temperature))
-        self.logit_p = Parameter(-torch.log(1.0 / torch.tensor(
-            (1 - self.rate)) - 1.0))
+        self.logit_p = Parameter(-torch.log(1.0 / (1 - self.rate) - 1.0))
         self.register_buffer('concrete_noise',
                              torch.bernoulli(1.0 - self.rate))
 
