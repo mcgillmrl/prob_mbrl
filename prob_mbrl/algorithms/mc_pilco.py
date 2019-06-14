@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 import tqdm
 
 from prob_mbrl.utils import rollout, plot_trajectories
@@ -16,6 +17,7 @@ def mc_pilco(init_states,
              mm_rewards=False,
              maximize=True,
              clip_grad=1.0,
+             cvar=False,
              discount=None,
              on_iteration=None,
              debug=False):
@@ -97,11 +99,17 @@ def mc_pilco(init_states,
         discounted_rewards = torch.stack(
             [r * discount(i) for i, r in enumerate(rewards)])
         if maximize:
-            loss = -discounted_rewards.sum(0).mean()
+            returns = -discounted_rewards.sum(0)
         else:
-            loss = discounted_rewards.sum(0).mean()
+            returns = discounted_rewards.sum(0)
+
+        if cvar:
+            q = np.quantile(returns.detach(), 0.9)
+            loss = returns[returns.detach() > q].mean()
+        else:
+            loss = loss.mean()
         # add regularization penalty
-        #loss = loss + 1e-3 * policy.regularization_loss()
+        # loss = loss + 1e-3 * policy.regularization_loss()
 
         # compute gradients
         loss.backward()
@@ -112,12 +120,8 @@ def mc_pilco(init_states,
 
         # update parameters
         opt.step()
-        if maximize:
-            pbar.set_description((msg % (-loss)) +
-                                 ' [{0}]'.format(len(rewards)))
-        else:
-            pbar.set_description((msg % (loss)) +
-                                 ' [{0}]'.format(len(rewards)))
+        pbar.set_description((msg % (discounted_rewards.mean())) +
+                             ' [{0}]'.format(len(rewards)))
 
         if callable(on_iteration):
             on_iteration(i, loss, states, actions, rewards, opt, policy,
@@ -126,9 +130,9 @@ def mc_pilco(init_states,
         # sample initial states
         if exp is not None:
             N_particles = init_states.shape[0]
-            x0 = torch.tensor(exp.sample_states(N_particles)).to(
-                dynamics.X.device).float()
-            x0 += 1e-1 * init_states.std(0) * torch.randn_like(x0)
+            x0 = exp.sample_states(N_particles).to(dynamics.X.device).float()
+            x0 += 1e-1 * x0.std(0) * torch.randn_like(x0)
+            init_states = x0
         else:
             x0 = init_states
         x0 = x0.detach()
@@ -274,7 +278,7 @@ class MCPILCOAgent(torch.nn.Module):
                     N_particles = init_states.shape[0]
                     x0 = torch.tensor(exp.sample_states(N_particles)).to(
                         dynamics.X.device).float()
-                    x0 += 1e-1 * init_states.std(0) * torch.randn_like(x0)
+                    x0 += 1e-1 * x0.std(0) * torch.randn_like(x0)
                 else:
                     x0 = init_states
 
