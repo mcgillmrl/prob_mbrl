@@ -1,4 +1,4 @@
-# Copyright (C) 2018, Anass Al
+# Copyright (C) 2018, Anass Al, Juan Camilo Gamboa Higuera
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -14,6 +14,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>
 """Pendulum dynamics model."""
 
+import numpy as np
 import torch
 from torch.nn import Parameter
 
@@ -41,10 +42,10 @@ class PendulumModel(DynamicsModel):
         """
         super(PendulumModel, self).__init__()
         self.dt = Parameter(torch.tensor(dt), requires_grad=False)
-        self.m = Parameter(torch.tensor(m), requires_grad=True)
-        self.l = Parameter(torch.tensor(l), requires_grad=True)
-        self.mu = Parameter(torch.tensor(mu), requires_grad=True)
-        self.g = Parameter(torch.tensor(g), requires_grad=True)
+        self.m = Parameter(torch.tensor(m), requires_grad=False)
+        self.l = Parameter(torch.tensor(l), requires_grad=False)
+        self.mu = Parameter(torch.tensor(mu), requires_grad=False)
+        self.g = Parameter(torch.tensor(g), requires_grad=False)
 
     @classproperty
     def action_size(cls):
@@ -89,22 +90,41 @@ class PendulumModel(DynamicsModel):
         Returns:
             derivatives of current state wrt to time (Tensor<..., state_size>).
         """
-        m = self.m
-        l = self.l
-        mu = self.mu
-        g = self.g
+
+        if not torch.is_grad_enabled():
+            if isinstance(z, torch.Tensor):
+                z = z.detach().numpy()
+            if isinstance(u, torch.Tensor):
+                u = u.detach().numpy()
+            m = self.m.numpy()
+            l = self.l.numpy()
+            mu = self.mu.numpy()
+            g = self.g.numpy()
+        else:
+            m = self.m
+            l = self.l
+            mu = self.mu
+            g = self.g
 
         theta = z[..., 0]
         theta_dot = z[..., 1]
         torque = u[..., 0]
 
+        sin_theta = theta.sin() if torch.is_grad_enabled() else np.sin(theta)
+        cos_theta = theta.cos() if torch.is_grad_enabled() else np.cos(theta)
+
         # Define acceleration.
         temp = m * l
-        theta_dot_dot = torque - mu * theta_dot - 0.5 * temp * g * theta.sin()
+        theta_dot_dot = torque - mu * theta_dot - 0.5 * temp * g * sin_theta
         theta_dot_dot = 3 * theta_dot_dot / (temp * l)
 
-        return torch.stack(
-            [
-                theta_dot,
-                theta_dot_dot,
-            ], dim=-1)
+        if not torch.is_grad_enabled():
+            dz = np.zeros_like(z)
+            dz[..., 0] = theta_dot
+            dz[..., 1] = theta_dot_dot
+            return dz
+
+        return torch.stack([
+            theta_dot,
+            theta_dot_dot,
+        ], dim=-1)

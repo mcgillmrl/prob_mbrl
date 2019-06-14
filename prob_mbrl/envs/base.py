@@ -42,6 +42,8 @@ class GymEnv(gym.Env):
                  measurement_noise=None,
                  angle_dims=[]):
         self.model = model
+        if hasattr(model, 'dt'):
+            self.dt = model.dt
 
         self.seed()
         self.viewer = None

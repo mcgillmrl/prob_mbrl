@@ -31,14 +31,12 @@ class CartpoleReward(torch.nn.Module):
                  Q=16.0 * torch.eye(2),
                  R=1e-4 * torch.eye(1)):
         super(CartpoleReward, self).__init__()
-        self.Q = torch.nn.Parameter(torch.tensor(Q), requires_grad=False)
-        self.R = torch.nn.Parameter(torch.tensor(R), requires_grad=False)
+        self.Q = torch.nn.Parameter(Q, requires_grad=False)
+        self.R = torch.nn.Parameter(R, requires_grad=False)
         if target.dim() == 1:
             target = target.unsqueeze(0)
-        self.target = torch.nn.Parameter(
-            torch.tensor(target), requires_grad=False)
-        self.pole_length = torch.nn.Parameter(
-            torch.tensor(pole_length), requires_grad=False)
+        self.target = torch.nn.Parameter(target, requires_grad=False)
+        self.pole_length = torch.nn.Parameter(pole_length, requires_grad=False)
 
     def forward(self, x, u):
         if not isinstance(x, torch.Tensor):

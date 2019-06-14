@@ -39,6 +39,10 @@ class PendulumReward(torch.nn.Module):
         self.pole_length = torch.nn.Parameter(pole_length, requires_grad=False)
 
     def forward(self, x, u):
+        if not isinstance(x, torch.Tensor):
+            x = torch.tensor(x)
+        if not isinstance(u, torch.Tensor):
+            u = torch.tensor(u)
         x = x.to(device=self.Q.device, dtype=self.Q.dtype)
         u = u.to(device=self.Q.device, dtype=self.Q.dtype)
         if x.dim() == 1:
