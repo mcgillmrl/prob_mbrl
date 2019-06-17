@@ -202,6 +202,8 @@ class BSequential(nn.modules.Sequential):
                             reg_loss += module.biases_regularizer(
                                 next_module.bias)
                         break
+            elif hasattr(module, 'regularization_loss'):
+                reg_loss += module.regularization_loss()
         return reg_loss
 
 
