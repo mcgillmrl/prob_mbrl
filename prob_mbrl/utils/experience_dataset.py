@@ -1,3 +1,4 @@
+import collections
 import numpy as np
 import os
 import torch
@@ -226,7 +227,15 @@ class ExperienceDataset(torch.nn.Module):
 
     def sample_states(self, n_samples=1, timestep=0):
         # collect initial states
-        x0 = [ep[timestep] for ep in self.states]
+        if timestep is None:
+            x0 = np.concatenate(self.states)
+        else:
+            if not isinstance(timestep, collections.Iterable):
+                timestep = [timestep]
+
+            x0 = np.concatenate(
+                [[ep[t] for t in timestep] for ep in self.states])
+
         # sample indices
         idx = np.random.choice(range(len(x0)), n_samples)
         return torch.tensor(x0)[idx].double()
