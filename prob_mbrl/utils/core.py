@@ -82,8 +82,11 @@ def plot_trajectories(
     for ax in chain(axarr1, axarr2, axarr3):
         ax.figure.canvas.draw()
 
-    plt.show(False)
-    plt.waitforbuttonpress(timeout)
+    if timeout > 0:
+        plt.show(False)
+        plt.waitforbuttonpress(timeout)
+    else:
+        plt.show()
 
 
 def plot_rollout(x0, forward, pol, steps):
