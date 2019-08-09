@@ -22,7 +22,8 @@ class BDropout(StochasticModule):
                              torch.tensor(0.5 * regularizer_scale**2))
         self.register_buffer('rate', torch.tensor(rate))
         self.p = 1 - self.rate
-        self.register_buffer('noise', torch.bernoulli(1.0 - self.rate))
+        self.register_buffer('noise',
+                             torch.bernoulli(torch.tensor([1.0 - self.rate])))
 
     def weights_regularizer(self, weights):
         self.p = 1 - self.rate
@@ -40,14 +41,18 @@ class BDropout(StochasticModule):
 
     def forward(self, x, resample=True, mask_dims=2, **kwargs):
         sample_shape = x.shape[-mask_dims:]
-        if sample_shape != self.noise.shape:
+        if (sample_shape[1:] != self.noise.shape[1:]
+                or sample_shape[0] > self.noise.shape[0]):
+            # resample if we can't re-use old numbers
+            # this happens when the incoming batch size is bigger than
+            # the noise batch size, or when the rest of the shape differs
             sample = x.view(-1, *sample_shape)[0]
             self.update_noise(sample)
         elif resample:
             return x * torch.bernoulli(self.p.expand(x.shape))
 
         # we never need the noise gradients
-        return x * self.noise.detach()
+        return x * self.noise[:x.shape[0]].detach()
 
     def extra_repr(self):
         return 'rate={}, regularizer_scale={}'.format(self.rate,
@@ -65,7 +70,7 @@ class CDropout(BDropout):
         self.register_buffer('temp', torch.tensor(temperature))
         self.logit_p = Parameter(-torch.log(1.0 / (1 - self.rate) - 1.0))
         self.register_buffer('concrete_noise',
-                             torch.bernoulli(1.0 - self.rate))
+                             torch.bernoulli(torch.tensor([1.0 - self.rate])))
 
     def weights_regularizer(self, weights):
         p = self.logit_p.sigmoid()
@@ -82,8 +87,9 @@ class CDropout(BDropout):
         Args:
             noise (Tensor): Input.
         """
-        self.p.data = self.logit_p.sigmoid()
-        concrete_p = self.logit_p + noise.log() - (1 - noise).log()
+        noise_p = noise + 1e-9
+        noise_m = noise - 1e-9
+        concrete_p = self.logit_p + (noise_p / (1 - noise_m)).log()
         self.concrete_noise = (concrete_p / self.temp).sigmoid()
 
     def forward(self, x, resample=False, mask_dims=2, **kwargs):
@@ -104,7 +110,11 @@ class CDropout(BDropout):
         if resample:
             noise = torch.rand_like(x)
             resampled = True
-        elif (sample_shape != self.concrete_noise.shape):
+        elif (sample_shape[1:] != self.concrete_noise.shape[1:]
+              or sample_shape[0] > self.concrete_noise.shape[0]):
+            # resample if we can't re-use old numbers
+            # this happens when the incoming batch size is bigger than
+            # the noise batch size, or when the rest of the shape differs
             sample = x.view(-1, *sample_shape)[0]
             self.update_noise(sample)
             noise = self.noise
@@ -118,7 +128,7 @@ class CDropout(BDropout):
                 self.update_concrete_noise(noise)
             # We never need these gradients in evaluation mode.
             concrete_noise = self.concrete_noise.detach()
-        return x * concrete_noise
+        return x * concrete_noise[:x.shape[0]]
 
     def extra_repr(self):
         return 'rate={}, temperature={}, regularizer_scale={}'.format(
@@ -172,11 +182,10 @@ class BSequential(nn.modules.Sequential):
                         # rescale lipschitz constant by dropout probability
                         pass
             if isinstance(module, StochasticModule):
-                input = module(
-                    input,
-                    resample=resample,
-                    repeat_mask=repeat_mask,
-                    **kwargs)
+                input = module(input,
+                               resample=resample,
+                               repeat_mask=repeat_mask,
+                               **kwargs)
             else:
                 input = module(input)
         return input
@@ -227,8 +236,8 @@ class SpectralNorm(torch.nn.Module):
         self.n_iter = power_iterations
         self.max_K = max_K
         self.init_params()
-        self.scale = torch.nn.Parameter(
-            torch.zeros(1), requires_grad=train_scale)
+        self.scale = torch.nn.Parameter(torch.zeros(1),
+                                        requires_grad=train_scale)
 
     def extra_repr(self):
         if hasattr(self.module, self.param_name):
