@@ -15,9 +15,8 @@ def mlp(input_dims,
         hidden_dims=[200, 200],
         nonlin=torch.nn.ReLU,
         output_nonlin=None,
-        weights_initializer=partial(
-            torch.nn.init.xavier_normal_,
-            gain=torch.nn.init.calculate_gain('relu')),
+        weights_initializer=partial(torch.nn.init.xavier_normal_,
+                                    gain=torch.nn.init.calculate_gain('relu')),
         biases_initializer=partial(torch.nn.init.uniform_, a=-0.1, b=0.1),
         dropout_layers=BDropout,
         input_dropout=None,
@@ -118,8 +117,9 @@ class Regressor(torch.nn.Module):
         self.register_buffer('my', torch.zeros([1, 1]))
         self.register_buffer('Sy', torch.ones([1, 1]))
         self.register_buffer('iSy', torch.ones([1, 1]))
+        #if hasattr(model, '')
 
-    def set_dataset(self, X, Y):
+    def set_dataset(self, X, Y, N_ensemble=-1, p=0.5):
         self.X.data = to_complex(X, self.angle_dims)
         self.Y.data = Y
         self.mx.data = self.X.mean(0, keepdim=True)
@@ -128,6 +128,9 @@ class Regressor(torch.nn.Module):
         self.my.data = self.Y.mean(0, keepdim=True)
         self.Sy.data = self.Y.std(0, keepdim=True)
         self.iSy.data = self.Y.std(0, keepdim=True).reciprocal()
+        if N_ensemble > 1:
+            self.masks.data = torch.bernoulli(
+                p * torch.ones(X.shape[0], N_ensemble))
 
     def regularization_loss(self):
         return self.model.regularization_loss()
@@ -149,8 +152,9 @@ class Regressor(torch.nn.Module):
         outs = self.model(x, **kwargs)
         if callable(self.output_density):
             scaling_params = (self.my, self.Sy) if normalize else None
-            outs = self.output_density(
-                outs, scaling_params=scaling_params, **kwargs)
+            outs = self.output_density(outs,
+                                       scaling_params=scaling_params,
+                                       **kwargs)
 
         return outs
 
@@ -170,8 +174,9 @@ class Policy(torch.nn.Module):
         return_numpy = isinstance(x, np.ndarray)
         kwargs['resample'] = kwargs.get('resample', True)
         if return_numpy:
-            x = torch.tensor(
-                x, dtype=self.scale.dtype, device=self.scale.device)
+            x = torch.tensor(x,
+                             dtype=self.scale.dtype,
+                             device=self.scale.device)
         else:
             x = x.to(dtype=self.scale.dtype, device=self.scale.device)
         x = to_complex(x, self.angle_dims)
@@ -183,7 +188,7 @@ class Policy(torch.nn.Module):
 
 
 class DynamicsModel(Regressor):
-    def __init__(self, model, reward_func=None, **kwargs):
+    def __init__(self, model, reward_func=None, predict_done=False, **kwargs):
         super(DynamicsModel, self).__init__(model, **kwargs)
         self.register_buffer('maxR', torch.ones([1, 1]))
         self.register_buffer('minR', torch.ones([1, 1]))
