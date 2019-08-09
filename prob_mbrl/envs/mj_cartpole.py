@@ -57,8 +57,8 @@ class Cartpole(BaseInvertedPendulumEnv):
                 node.set('ctrlrange', '-1 1')
 
         tmppath = '/tmp/cartpole_{0}_{1}_{2}_{3}_{4}_{5}.xml'.format(
-            cart_mass, pole_mass, pole_length,
-            cart_damping, max_control, gravity, dt)
+            cart_mass, pole_mass, pole_length, cart_damping, max_control,
+            gravity, dt)
         xmldoc.write(tmppath)
         utils.EzPickle.__init__(self)
         mujoco_env.MujocoEnv.__init__(self, tmppath, frame_skip)
@@ -89,7 +89,8 @@ class Cartpole(BaseInvertedPendulumEnv):
         cart_rw = (1 + torch.exp(-0.5 * (state[..., 0:1] * scale)**2)) / 2
 
         # control penalty (reduces reward for larger actions)
-        control_rw = (4 + torch.max(torch.zeros_like(action), 1 - action**2)) / 5
+        control_rw = (4 +
+                      torch.max(torch.zeros_like(action), 1 - action**2)) / 5
 
         # velocity penalty (halves the reward if spinning too fast)
         vel_rw = (1 + torch.exp(-0.5 * state[..., 3:4]**2)) / 2
