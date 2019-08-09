@@ -67,8 +67,7 @@ class MixtureDensity(StochasticModule):
         self.register_buffer('z_pi', torch.ones([1, 1]))
 
     def resample(self, *args, **kwargs):
-        u = torch.distributions.utils.clamp_probs(
-                    torch.rand_like(self.z_pi))
+        u = torch.distributions.utils.clamp_probs(torch.rand_like(self.z_pi))
         self.z_pi.data = -(-u.log()).log()
         self.z_normal.data = torch.randn_like(self.z_normal)
 
@@ -82,11 +81,18 @@ class MixtureDensity(StochasticModule):
                 **kwargs):
         D = int(self.output_dims)
         nD = D * self.n_components
+
+        outs = x.split(nD, -1)
+        if len(outs) == 4:
+            mean, log_std, logit_pi, log_temperature = outs
+        else:
+            mean, log_std, extras = outs
+            logit_pi, log_temperature = extras.split(self.n_components, -1)
+
         # the output shape is [batch_size, output_dimensions, n_components]
-        mean, log_std, logit_pi = x.split(nD, -1)
         mean = mean.view(-1, D, self.n_components)
         log_std = log_std.view(-1, D, self.n_components)
-        logit_pi = logit_pi / temperature
+        logit_pi = logit_pi / (temperature + (log_temperature).exp())
 
         # scale and center outputs
         if scaling_params is not None and len(scaling_params) > 0:
