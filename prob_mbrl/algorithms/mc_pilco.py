@@ -21,6 +21,7 @@ def mc_pilco(init_states,
              reg_weight=0.0,
              discount=None,
              on_iteration=None,
+             step_idx_to_sample=None,
              debug=False):
     dynamics.eval()
     policy.train()
@@ -133,7 +134,9 @@ def mc_pilco(init_states,
         # sample initial states
         if exp is not None:
             N_particles = init_states.shape[0]
-            x0 = exp.sample_states(N_particles).to(dynamics.X.device).float()
+            x0 = exp.sample_states(N_particles,
+                                   timestep=step_idx_to_sample).to(
+                                       dynamics.X.device).float()
             x0 += 1e-1 * x0.std(0) * torch.randn_like(x0)
             init_states = x0
         else:
