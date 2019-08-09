@@ -30,7 +30,7 @@ def mc_pilco(init_states,
         discount_factor = discount
         discount = lambda i: discount_factor**i  # noqa: E731
 
-    msg = "Cumm. rewards: %f" if maximize else "Cumm. costs: %f"
+    msg = "Pred. Cumm. rewards: %f" if maximize else "Pred. Cumm. costs: %f"
     if opt is None:
         params = filter(lambda p: p.requires_grad, policy.parameters())
         opt = torch.optim.Adam(params)
@@ -67,17 +67,16 @@ def mc_pilco(init_states,
         # rollout policy
         H = steps
         try:
-            trajs = rollout(
-                x0,
-                dynamics,
-                policy,
-                H,
-                resample_state_noise=not pegasus,
-                resample_action_noise=not pegasus,
-                mm_states=mm_states,
-                mm_rewards=mm_rewards,
-                z_mm=z_mm if pegasus else None,
-                z_rr=z_rr if pegasus else None)
+            trajs = rollout(x0,
+                            dynamics,
+                            policy,
+                            H,
+                            resample_state_noise=not pegasus,
+                            resample_action_noise=not pegasus,
+                            mm_states=mm_states,
+                            mm_rewards=mm_rewards,
+                            z_mm=z_mm if pegasus else None,
+                            z_rr=z_rr if pegasus else None)
             states, actions, rewards = (torch.stack(x) for x in zip(*trajs))
             if debug and i % 100 == 0:
                 plot_trajectories(
@@ -98,6 +97,7 @@ def mc_pilco(init_states,
         # calculate loss. average over batch index, sum over time step index
         discounted_rewards = torch.stack(
             [r * discount(i) for i, r in enumerate(rewards)])
+
         if maximize:
             returns = -discounted_rewards.sum(0)
         else:
@@ -107,7 +107,7 @@ def mc_pilco(init_states,
             q = np.quantile(returns.detach(), 0.9)
             loss = returns[returns.detach() > q].mean()
         else:
-            loss = loss.mean()
+            loss = returns.mean()
         # add regularization penalty
         # loss = loss + 1e-3 * policy.regularization_loss()
 
@@ -120,7 +120,7 @@ def mc_pilco(init_states,
 
         # update parameters
         opt.step()
-        pbar.set_description((msg % (discounted_rewards.mean())) +
+        pbar.set_description((msg % (rewards.sum(0).mean())) +
                              ' [{0}]'.format(len(rewards)))
 
         if callable(on_iteration):
@@ -218,17 +218,16 @@ class MCPILCOAgent(torch.nn.Module):
             retries = 0
             while retries < n_retries:
                 try:
-                    trajs = rollout(
-                        x0,
-                        dynamics,
-                        policy,
-                        H,
-                        resample_state_noise=not pegasus,
-                        resample_action_noise=not pegasus,
-                        mm_states=mm_states,
-                        mm_rewards=mm_rewards,
-                        z_mm=z_mm,
-                        z_rr=z_rr)
+                    trajs = rollout(x0,
+                                    dynamics,
+                                    policy,
+                                    H,
+                                    resample_state_noise=not pegasus,
+                                    resample_action_noise=not pegasus,
+                                    mm_states=mm_states,
+                                    mm_rewards=mm_rewards,
+                                    z_mm=z_mm,
+                                    z_rr=z_rr)
                     break
                 except RuntimeError:
                     # resample random numbers
