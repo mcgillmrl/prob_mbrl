@@ -240,10 +240,12 @@ class DynamicsModel(Regressor):
                 dstates = outs
             rewards = self.reward_func(prev_states + dstates, actions)
         else:
-            D = outs.shape[-1] - 1
             if len(outs) == 2:  # density is returning the output noise
                 outs, noise = outs
+                D = outs.shape[-1] - 1
                 state_noise, reward_noise = noise.split(D, -1)
+            else:
+                D = outs.shape[-1] - 1
             # assume rewards come from the last dimension of the output
             dstates, rewards = outs.split(D, -1)
 
