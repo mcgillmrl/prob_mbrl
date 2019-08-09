@@ -59,11 +59,11 @@ def apply_controller(env,
         info['done'] = done
 
         # append to dataset
-        data.append((x_t, u_t, c_t, info))
+        data.append((x_t, u_t, c_t, done, info))
 
         # send data to callback
         if callable(callback):
-            callback(x_t, u_t, c_t, info)
+            callback(x_t, u_t, c_t, done, info)
 
         # break if done
         if done:
@@ -77,7 +77,7 @@ def apply_controller(env,
             time.sleep(max(dt - exec_time, 0))
         t_ = time.time()
 
-    states, actions, costs, infos = zip(*data)
+    states, actions, costs, dones, infos = zip(*data)
 
     msg = 'Done. Stopping robot.'
     if all([v is not None for v in costs]):
@@ -89,4 +89,4 @@ def apply_controller(env,
     if hasattr(env, 'stop'):
         env.stop()
 
-    return states, actions, costs, infos
+    return states, actions, costs, dones, infos

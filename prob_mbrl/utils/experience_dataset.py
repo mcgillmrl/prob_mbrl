@@ -16,12 +16,19 @@ class ExperienceDataset(torch.nn.Module):
         self.states = []
         self.actions = []
         self.rewards = []
+        self.done = []
         self.info = []
         self.policy_parameters = []
         self.curr_episode = -1
         self.state_changed = True
 
-    def add_sample(self, x_t=None, u_t=None, c_t=None, info=None, t=None):
+    def add_sample(self,
+                   x_t=None,
+                   u_t=None,
+                   c_t=None,
+                   done=None,
+                   info=None,
+                   t=None):
         '''
             Adds new set of observations to the current episode
         '''
@@ -31,6 +38,7 @@ class ExperienceDataset(torch.nn.Module):
         self.states[curr_episode].append(x_t)
         self.actions[curr_episode].append(u_t)
         self.rewards[curr_episode].append(c_t)
+        self.done[curr_episode].append(done)
         self.info[curr_episode].append(info)
         self.time_stamps[curr_episode].append(t)
         self.state_changed = True
@@ -56,11 +64,14 @@ class ExperienceDataset(torch.nn.Module):
                        states,
                        actions,
                        rewards,
+                       dones=None,
                        infos=None,
                        policy_params=None,
                        ts=None):
         if policy_params is not None:
             self.policy_parameters.append(policy_params)
+        if dones is not None:
+            self.done.append(dones)
         if infos is not None:
             self.info.append(infos)
         if ts is not None:
@@ -203,8 +214,8 @@ class ExperienceDataset(torch.nn.Module):
                            dim=1)
 
             #  create output vector
-            tgt = (ostates[1:, :] - ostates[:-1, :]
-                   if deltas else ostates[1:, :])
+            tgt = (ostates[1:, :] -
+                   ostates[:-1, :] if deltas else ostates[1:, :])
 
             # append rewards if requested
             if return_costs:
@@ -233,8 +244,8 @@ class ExperienceDataset(torch.nn.Module):
             if not isinstance(timestep, collections.Iterable):
                 timestep = [timestep]
 
-            x0 = np.concatenate(
-                [[ep[t] for t in timestep] for ep in self.states])
+            x0 = np.concatenate([[ep[t] for t in timestep]
+                                 for ep in self.states])
 
         # sample indices
         idx = np.random.choice(range(len(x0)), n_samples)
@@ -245,14 +256,13 @@ class ExperienceDataset(torch.nn.Module):
             os.makedirs(os.path.dirname(filename))
         except OSError:
             pass
-        state_dict = dict(
-            states=self.states,
-            actions=self.actions,
-            rewards=self.rewards,
-            info=self.info,
-            times_stamps=self.time_stamps,
-            curr_episode=self.curr_episode,
-            policy_parameters=self.policy_parameters)
+        state_dict = dict(states=self.states,
+                          actions=self.actions,
+                          rewards=self.rewards,
+                          info=self.info,
+                          times_stamps=self.time_stamps,
+                          curr_episode=self.curr_episode,
+                          policy_parameters=self.policy_parameters)
         torch.save(state_dict, filename)
 
     def load(self, filename):
