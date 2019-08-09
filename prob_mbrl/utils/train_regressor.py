@@ -42,6 +42,7 @@ def train_regressor(model,
     Y = (model.Y - model.my) * model.iSy
     N = X.shape[0]
     M = batchsize
+    print('train_regressor >', 'Dataset size [%d]' % int(N))
     model.train()
     if reg_weight is None:
         reg_weight = 1 / N

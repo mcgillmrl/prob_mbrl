@@ -79,7 +79,7 @@ def apply_controller(env,
 
     states, actions, costs, dones, infos = zip(*data)
 
-    msg = 'Done. Stopping robot.'
+    msg = 'Done after [%d] steps. Stopping robot.' % (t + 1)
     if all([v is not None for v in costs]):
         run_value = np.array(costs).sum()
         msg += ' Value of run [%f]' % run_value
