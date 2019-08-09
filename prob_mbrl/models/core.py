@@ -167,6 +167,9 @@ class Policy(torch.nn.Module):
         self.register_buffer('scale', torch.tensor(out_scale))
         self.register_buffer('bias', torch.tensor(out_bias))
 
+    def regularization_loss(self):
+        return self.model.regularization_loss()
+
     def resample(self, *args, **kwargs):
         self.model.resample(*args, **kwargs)
 

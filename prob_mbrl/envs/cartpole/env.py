@@ -80,7 +80,7 @@ class CartpoleReward(torch.nn.Module):
         # reward is negative cost.
         # optimizing the exponential of the negative cost
         # clamping for numerical stability
-        reward = (-(cost.clamp(0, 10))).exp()
+        reward = (-(cost.clamp(0, 15))).exp()
         return reward
 
 

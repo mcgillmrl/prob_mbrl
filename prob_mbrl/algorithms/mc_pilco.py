@@ -18,6 +18,7 @@ def mc_pilco(init_states,
              maximize=True,
              clip_grad=1.0,
              cvar=False,
+             reg_weight=0.0,
              discount=None,
              on_iteration=None,
              debug=False):
@@ -108,8 +109,10 @@ def mc_pilco(init_states,
             loss = returns[returns.detach() > q].mean()
         else:
             loss = returns.mean()
+
         # add regularization penalty
-        # loss = loss + 1e-3 * policy.regularization_loss()
+        if reg_weight > 0:
+            loss = loss + reg_weight * policy.regularization_loss()
 
         # compute gradients
         loss.backward()
