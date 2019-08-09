@@ -71,10 +71,9 @@ class PendulumReward(torch.nn.Module):
                       (u.mm(self.R) * u).sum(-1, keepdim=True))
 
         # reward is negative cost.
-        # optimizing the exponential of the negative cost is equivalent to
-        # doing inference to maximize rewards (high reward trajectories
-        # should be more likely), assuming conditionally independent rewards
-        reward = (-cost).exp()
+        # optimizing the exponential of the negative cost
+        # clamping for numerical stability
+        reward = (-(cost.clamp(0, 15))).exp()
         return reward
 
 
@@ -111,8 +110,9 @@ class Pendulum(GymEnv):
                                      self.angle_dims).numpy()
         else:
             low = -high
-        self.observation_space = spaces.Box(
-            low=low, high=high, dtype=np.float32)
+        self.observation_space = spaces.Box(low=low,
+                                            high=high,
+                                            dtype=np.float32)
 
     def reset(self, init_state=np.array([0.0, 0.0]), init_state_std=2e-1):
         return super(Pendulum, self).reset(init_state, init_state_std)

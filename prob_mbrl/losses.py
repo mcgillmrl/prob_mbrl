@@ -27,7 +27,7 @@ def gaussian_log_likelihood(targets, means, log_stds=None):
         if device_id not in HALF_LOG_TWO_PI:
             HALF_LOG_TWO_PI[device_id] = HALF_LOG_TWO_PI['default'].to(
                 targets.device)
-        stds = log_stds.exp()
+        stds = log_stds.clamp(-15, 15).exp()
         lml = - 0.5 * ((deltas*stds.reciprocal())**2).sum(-1)\
               - log_stds.sum(-1)\
               - D * HALF_LOG_TWO_PI[device_id]
@@ -55,7 +55,7 @@ def gaussian_mixture_log_likelihood(targets, means, log_stds, logit_pi):
     deltas = means - targets.unsqueeze(-1)
 
     # weighted probabilities
-    stds = log_stds.exp()
+    stds = log_stds.clamp(-15, 15).exp()
     log_norm = -D * HALF_LOG_TWO_PI[device_id] - (log_stds).sum(-2)
     dists = -0.5 * ((deltas * stds.reciprocal())**2).sum(-2)
     log_probs = log_softmax(logit_pi, -1) + log_norm + dists

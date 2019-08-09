@@ -78,10 +78,9 @@ class CartpoleReward(torch.nn.Module):
                       (u.mm(self.R) * u).sum(-1, keepdim=True))
 
         # reward is negative cost.
-        # optimizing the exponential of the negative cost is equivalent to
-        # doing inference to maximize rewards (high reward trajectories
-        # should be more likely), assuming conditionally independent rewards
-        reward = (-cost).exp()
+        # optimizing the exponential of the negative cost
+        # clamping for numerical stability
+        reward = (-(cost.clamp(0, 10))).exp()
         return reward
 
 
@@ -140,16 +139,17 @@ class Cartpole(GymEnv):
                                      self.angle_dims).numpy()
         else:
             low = -high
-        self.observation_space = spaces.Box(
-            low=low, high=high, dtype=np.float32)
+        self.observation_space = spaces.Box(low=low,
+                                            high=high,
+                                            dtype=np.float32)
 
     def step(self,
              action,
              x_lim=[-2.0, 2.0],
              ang_lim=[-4 * np.pi, 4 * np.pi],
              **kwargs):
-        state, reward, done, info = super(Cartpole, self).step(
-            action, **kwargs)
+        state, reward, done, info = super(Cartpole,
+                                          self).step(action, **kwargs)
         if self.state[0] < x_lim[0] or self.state[0] > x_lim[1]:
             done = True
         if self.state[2] < ang_lim[0] or self.state[2] > ang_lim[1]:
@@ -194,8 +194,8 @@ class Cartpole(GymEnv):
                 l, r, t, b = (-cartwidth / 2, cartwidth / 2, cartheight / 2,
                               -cartheight / 2)
                 axleoffset = cartheight / 4.0
-                cart = rendering.FilledPolygon([(l, b), (l, t), (r, t), (r,
-                                                                         b)])
+                cart = rendering.FilledPolygon([(l, b), (l, t), (r, t),
+                                                (r, b)])
                 cart.attrs[0].vec4 = (0.0, 0.0, 0.0, 1.0 / (N - i))
                 self.carttrans[i] = rendering.Transform()
                 cart.add_attr(self.carttrans[i])
@@ -203,8 +203,8 @@ class Cartpole(GymEnv):
 
                 l, r, t, b = (-polewidth / 2, polewidth / 2,
                               polelen - polewidth / 2, -polewidth / 2)
-                pole = rendering.FilledPolygon([(l, b), (l, t), (r, t), (r,
-                                                                         b)])
+                pole = rendering.FilledPolygon([(l, b), (l, t), (r, t),
+                                                (r, b)])
                 pole.set_color(0.8, 0.6, 0.4)
                 pole.attrs[0].vec4 = (0.8, 0.6, 0.4, 1.0 / (N - i))
                 self.poletrans[i] = rendering.Transform(
@@ -228,8 +228,8 @@ class Cartpole(GymEnv):
             self.viewer.add_geom(self.track)
 
         for i in range(N - 1):
-            self.carttrans[i].set_translation(
-                *self.carttrans[i + 1].translation)
+            self.carttrans[i].set_translation(*self.carttrans[i +
+                                                              1].translation)
             self.poletrans[i].set_rotation(self.poletrans[i + 1].rotation)
 
         self.carttrans[-1].set_translation(cartx, carty)

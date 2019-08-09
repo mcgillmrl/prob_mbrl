@@ -36,12 +36,12 @@ class DoubleCartpoleReward(torch.nn.Module):
         self.R = torch.nn.Parameter(torch.tensor(R), requires_grad=False)
         if target.dim() == 1:
             target = target.unsqueeze(0)
-        self.target = torch.nn.Parameter(
-            torch.tensor(target), requires_grad=False)
-        self.pole1_length = torch.nn.Parameter(
-            torch.tensor(pole1_length), requires_grad=False)
-        self.pole2_length = torch.nn.Parameter(
-            torch.tensor(pole2_length), requires_grad=False)
+        self.target = torch.nn.Parameter(torch.tensor(target),
+                                         requires_grad=False)
+        self.pole1_length = torch.nn.Parameter(torch.tensor(pole1_length),
+                                               requires_grad=False)
+        self.pole2_length = torch.nn.Parameter(torch.tensor(pole2_length),
+                                               requires_grad=False)
 
     def forward(self, x, u):
         x = x.to(device=self.Q.device, dtype=self.Q.dtype)
@@ -78,10 +78,9 @@ class DoubleCartpoleReward(torch.nn.Module):
         cost = 0.5 * ((delta.mm(self.Q) * delta).sum(-1, keepdim=True) +
                       (u.mm(self.R) * u).sum(-1, keepdim=True))
         # reward is negative cost.
-        # optimizing the exponential of the negative cost is equivalent to
-        # doing inference to maximize rewards (high reward trajectories
-        # should be more likely), assuming conditionally independent rewards
-        reward = (-cost).exp()
+        # optimizing the exponential of the negative cost
+        # clamping for numerical stability
+        reward = (-(cost.clamp(0, 15))).exp()
         return reward
 
 
@@ -98,8 +97,8 @@ class DoubleCartpole(GymEnv):
             model = DoubleCartpoleModel()
         # init parent class
         reward_func = reward_func if callable(
-            reward_func) else DoubleCartpoleReward(
-                pole1_length=model.l1, pole2_length=model.l2)
+            reward_func) else DoubleCartpoleReward(pole1_length=model.l1,
+                                                   pole2_length=model.l2)
         measurement_noise = torch.tensor([0.01] * 6)
         super(DoubleCartpole, self).__init__(model, reward_func,
                                              measurement_noise)
@@ -123,13 +122,14 @@ class DoubleCartpole(GymEnv):
                                      self.angle_dims).numpy()
         else:
             low = -high
-        self.observation_space = spaces.Box(
-            low=low, high=high, dtype=np.float32)
+        self.observation_space = spaces.Box(low=low,
+                                            high=high,
+                                            dtype=np.float32)
 
     def reset(self,
               init_state=np.array([0, 0, np.pi, 0, np.pi, 0]),
               init_state_std=2e-1):
-        return super(DoubleCartpole, self). reset(init_state, init_state_std)
+        return super(DoubleCartpole, self).reset(init_state, init_state_std)
 
     def render(self, mode="human"):
         screen_width = 1000
@@ -184,8 +184,8 @@ class DoubleCartpole(GymEnv):
                           polelen2 - polewidth2 / 2, -polewidth2 / 2)
             pole2 = rendering.FilledPolygon([(l, b), (l, t), (r, t), (r, b)])
             pole2.set_color(0.8, 0.6, 0.4)
-            self.pole2trans = rendering.Transform(
-                translation=(0, polelen1 - axleoffset))
+            self.pole2trans = rendering.Transform(translation=(0, polelen1 -
+                                                               axleoffset))
             pole2.add_attr(self.pole2trans)
             pole2.add_attr(self.pole1trans)
             pole2.add_attr(self.carttrans)

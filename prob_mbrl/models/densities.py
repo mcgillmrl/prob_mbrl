@@ -46,7 +46,7 @@ class DiagGaussianDensity(StochasticModule):
                 if (mean.shape != self.z.shape) or resample_output_noise:
                     self.z.data = torch.randn_like(mean)
                 z = self.z
-                noise = z * log_std.exp()
+                noise = z * log_std.clamp(-15, 15).exp()
                 return samples, noise
             return samples
         else:
@@ -92,7 +92,8 @@ class MixtureDensity(StochasticModule):
         # the output shape is [batch_size, output_dimensions, n_components]
         mean = mean.view(-1, D, self.n_components)
         log_std = log_std.view(-1, D, self.n_components)
-        logit_pi = logit_pi / (temperature + (log_temperature).exp())
+        logit_pi = logit_pi / (temperature +
+                               (log_temperature.clamp(-15, 15)).exp())
 
         # scale and center outputs
         if scaling_params is not None and len(scaling_params) > 0:
@@ -118,10 +119,11 @@ class MixtureDensity(StochasticModule):
             if output_noise:
                 if (mean[:-1].shape != self.z_pi.shape)\
                         or resample_output_noise:
-                    self.z_normal.data = torch.randn(
-                        *mean.shape[:-1], device=mean.device)
+                    self.z_normal.data = torch.randn(*mean.shape[:-1],
+                                                     device=mean.device)
                 z2 = self.z_normal
-                noise = z2 * log_std.gather(-1, k).squeeze(-1).exp()
+                noise = z2 * log_std.gather(-1, k).squeeze(-1).clamp(-15,
+                                                                     15).exp()
 
                 return samples, noise
             return samples
