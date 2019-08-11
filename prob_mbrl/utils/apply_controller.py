@@ -8,7 +8,8 @@ def apply_controller(env,
                      max_steps,
                      preprocess=None,
                      callback=None,
-                     realtime=False):
+                     realtime=False,
+                     stop_when_done=True):
     '''
         Starts the env and applies the current policy to the env for a duration
         specified by H (in seconds). If  H is not set, it will run for self.H
@@ -30,7 +31,8 @@ def apply_controller(env,
     # start robot
     print(fnname, 'Starting run')
     if hasattr(env, 'dt'):
-        H = max_steps * env.dt
+        dt = env.dt
+        H = max_steps * dt
         print(fnname, 'Running for %f seconds' % (H))
     else:
         print(fnname, 'Running for %d steps' % (max_steps))
@@ -41,7 +43,6 @@ def apply_controller(env,
     data = []
 
     # do rollout
-    dt = env.dt
     t_ = time.time()
     for t in range(max_steps):
         # preprocess state
@@ -66,7 +67,7 @@ def apply_controller(env,
             callback(x_t, u_t, c_t, done, info)
 
         # break if done
-        if done:
+        if done and stop_when_done:
             break
 
         # replace current state
