@@ -53,14 +53,14 @@ class DiagGaussianDensity(StochasticModule):
             return mean, log_std
 
 
-class MixtureDensity(StochasticModule):
+class GaussianMixtureDensity(StochasticModule):
     '''
      Mixture of Gaussian Densities Network model. The components have diagonal
      covariance.
     '''
 
     def __init__(self, output_dims, n_components, **kwargs):
-        super(MixtureDensity, self).__init__(**kwargs)
+        super(GaussianMixtureDensity, self).__init__(**kwargs)
         self.n_components = n_components
         self.output_dims = output_dims
         self.register_buffer('z_normal', torch.ones([1, 1]))
@@ -77,7 +77,7 @@ class MixtureDensity(StochasticModule):
                 return_samples=False,
                 output_noise=True,
                 resample_output_noise=True,
-                temperature=1.0,
+                sampling_temperature=0.1,
                 **kwargs):
         D = int(self.output_dims)
         nD = D * self.n_components
@@ -92,8 +92,8 @@ class MixtureDensity(StochasticModule):
         # the output shape is [batch_size, output_dimensions, n_components]
         mean = mean.view(-1, D, self.n_components)
         log_std = log_std.view(-1, D, self.n_components)
-        logit_pi = logit_pi / (temperature +
-                               (log_temperature.clamp(-15, 15)).exp())
+        temp = 1e-1 + torch.nn.functional.softplus(log_temperature)
+        logit_pi = logit_pi / temp
 
         # scale and center outputs
         if scaling_params is not None and len(scaling_params) > 0:
@@ -112,18 +112,21 @@ class MixtureDensity(StochasticModule):
                     torch.rand_like(logit_pi))
                 self.z_pi.data = -(-u.log()).log()
             z1 = self.z_pi
-            # replace this sampling operation
-            k = (log_softmax(logit_pi, -1) + z1).argmax(-1)
-            k = k[:, None, None].repeat(1, mean.shape[-2], 1)
-            samples = mean.gather(-1, k).squeeze(-1)
+            # sample from gumbel softmax
+            k_soft = ((log_softmax(logit_pi, -1) + z1) /
+                      sampling_temperature).softmax(-1)
+            k_idx = k_soft.argmax(-1).view(-1, 1)
+            k_hard = torch.zeros_like(k_soft).scatter(1, k_idx, 1)
+            # get hard max (but backprop through softmax)
+            k = ((k_hard - k_soft).detach() + k_hard)[:, None, :]
+            samples = (mean * k).sum(-1)
             if output_noise:
                 if (mean[:-1].shape != self.z_pi.shape)\
                         or resample_output_noise:
                     self.z_normal.data = torch.randn(*mean.shape[:-1],
                                                      device=mean.device)
                 z2 = self.z_normal
-                noise = z2 * log_std.gather(-1, k).squeeze(-1).clamp(-15,
-                                                                     15).exp()
+                noise = z2 * (log_std * k).sum(-1).clamp(-15, 15).exp()
 
                 return samples, noise
             return samples

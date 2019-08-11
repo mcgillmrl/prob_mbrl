@@ -13,12 +13,12 @@ if __name__ == '__main__':
     n_rnd = 4
     pred_H = 15
     control_H = 60
-    N_particles = 100
+    N_particles = 200
     N_polopt = 1000
     N_dynopt = 2000
     dyn_components = 1
-    dyn_hidden = [200] * 2
-    pol_hidden = [200] * 2
+    dyn_hidden = [200] * 4
+    pol_hidden = [200] * 4
     use_cuda = False
     learn_reward = True
 
@@ -38,10 +38,16 @@ if __name__ == '__main__':
     else:
         reward_func = env.reward_func
 
+    # intialize to max episode steps if available
+    if hasattr(env, 'spec'):
+        if hasattr(env.spec, 'max_episode_steps'):
+            control_H = env.spec.max_episode_steps
+
     # initialize dynamics model
     dynE = 2 * (D + 1) if learn_reward else 2 * D
     if dyn_components > 1:
-        output_density = models.MixtureDensity(dynE / 2, dyn_components)
+        output_density = models.GaussianMixtureDensity(dynE / 2,
+                                                       dyn_components)
         dynE = (dynE + 1) * dyn_components + 1
         log_likelihood_loss = losses.gaussian_mixture_log_likelihood
     else:
