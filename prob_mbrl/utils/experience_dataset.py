@@ -219,7 +219,7 @@ class ExperienceDataset(torch.nn.Module):
 
             # append rewards if requested
             if return_costs:
-                rewards = torch.tensor(self.rewards[epi]).double()
+                rewards = torch.tensor(self.rewards[epi]).double().squeeze(-1)
                 if rewards.dim() == 1:
                     rewards = rewards.unsqueeze(1)
                 ocosts = join([
