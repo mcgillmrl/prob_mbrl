@@ -67,7 +67,7 @@ def plot_trajectories(
                                 num=names[1],
                                 sharex=True,
                                 figsize=(16, 3))
-    fig3, axarr3 = plt.subplots(actions.shape[-1],
+    fig3, axarr3 = plt.subplots(rewards.shape[-1],
                                 num=names[2],
                                 sharex=True,
                                 figsize=(16, 3))
