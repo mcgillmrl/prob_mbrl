@@ -117,10 +117,12 @@ class Regressor(torch.nn.Module):
         self.register_buffer('my', torch.zeros([1, 1]))
         self.register_buffer('Sy', torch.ones([1, 1]))
         self.register_buffer('iSy', torch.ones([1, 1]))
-        #if hasattr(model, '')
 
     def set_dataset(self, X, Y, N_ensemble=-1, p=0.5):
-        self.X.data = to_complex(X, self.angle_dims)
+        if len(self.angle_dims):
+            self.X.data = to_complex(X, self.angle_dims)
+        else:
+            self.X.data = X
         self.Y.data = Y
         self.mx.data = self.X.mean(0, keepdim=True)
         self.Sx.data = self.X.std(0, keepdim=True)
@@ -144,7 +146,7 @@ class Regressor(torch.nn.Module):
         ''' This assumes that the newtork outputs the parameters for
             an isotropic Gaussian predictive distribution, for each
             batch sample'''
-        if x.shape[-1] != self.X.shape[-1]:
+        if len(self.angle_dims) > 0:
             x = to_complex(x, self.angle_dims)
         # scale and center inputs
         if normalize:
@@ -160,12 +162,14 @@ class Regressor(torch.nn.Module):
 
 
 class Policy(torch.nn.Module):
-    def __init__(self, model, out_scale=1.0, out_bias=0.0, angle_dims=[]):
+    def __init__(self, model, maxU=1.0, minU=None, angle_dims=[]):
         super(Policy, self).__init__()
         self.model = model
         self.register_buffer('angle_dims', torch.tensor(angle_dims).long())
-        self.register_buffer('scale', torch.tensor(out_scale))
-        self.register_buffer('bias', torch.tensor(out_bias))
+        if minU is None:
+            minU = -maxU
+        self.register_buffer('maxU', torch.tensor(maxU))
+        self.register_buffer('minU', torch.tensor(minU))
 
     def regularization_loss(self):
         return self.model.regularization_loss()
@@ -176,14 +180,18 @@ class Policy(torch.nn.Module):
     def forward(self, x, **kwargs):
         return_numpy = isinstance(x, np.ndarray)
         kwargs['resample'] = kwargs.get('resample', True)
+        kwargs['return_samples'] = kwargs.get('return_samples', True)
         if return_numpy:
-            x = torch.tensor(x,
-                             dtype=self.scale.dtype,
-                             device=self.scale.device)
+            x = torch.tensor(x, dtype=self.maxU.dtype, device=self.maxU.device)
         else:
-            x = x.to(dtype=self.scale.dtype, device=self.scale.device)
-        x = to_complex(x, self.angle_dims)
-        u = self.scale * self.model(x, **kwargs) + self.bias
+            x = x.to(dtype=self.maxU.dtype, device=self.maxU.device)
+        if len(self.angle_dims) > 0:
+            x = to_complex(x, self.angle_dims)
+        u = self.model(x, **kwargs)
+        if isinstance(u, Iterable):
+            u, unoise = u
+            u = u + unoise
+        u = u.max(self.minU).min(self.maxU)
         if return_numpy:
             return u.detach().cpu().numpy()
         else:
