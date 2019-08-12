@@ -37,12 +37,14 @@ def rollout(states,
             z1 = get_z_rnd(z_mm, i, states.shape, states.device)
             z2 = get_z_rnd(z_rr, i, (states.shape[0], 1), states.device)
 
+            # noise state measurement
+            states_ = states + state_noise
             # evaluate policy
-            actions = policy(
-                states + state_noise,
-                resample=resample_policy,
-                resample_output_noise=resample_action_noise)
-
+            actions = policy(states_,
+                             resample=resample_policy,
+                             output_noise=True,
+                             return_samples=True,
+                             resample_output_noise=resample_action_noise)
             # propagate state particles (and obtain rewards)
             outs = dynamics((states, actions),
                             output_noise=True,
@@ -83,6 +85,9 @@ def rollout(states,
                     z2 = (z2 - z2.mean(0)) / z2.std(0)
                 z2 = z2.detach()
                 rewards = m + z2.mm(L)
+
+            # noisy reward measurements
+            # rewards = rewards + reward_noise
 
             trajectory.append((states, actions, rewards))
             states = next_states
