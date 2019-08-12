@@ -118,7 +118,7 @@ class GaussianMixtureDensity(StochasticModule):
             k_idx = k_soft.argmax(-1).view(-1, 1)
             k_hard = torch.zeros_like(k_soft).scatter(1, k_idx, 1)
             # get hard max (but backprop through softmax)
-            k = ((k_hard - k_soft).detach() + k_hard)[:, None, :]
+            k = ((k_hard - k_soft).detach() + k_soft)[:, None, :]
             samples = (mean * k).sum(-1)
             if output_noise:
                 if (mean[:-1].shape != self.z_pi.shape)\
