@@ -94,7 +94,7 @@ def plot_trajectories(
         ax.figure.canvas.draw()
 
     if timeout > 0:
-        plt.show(False)
+        plt.show(block=False)
         plt.waitforbuttonpress(timeout)
     else:
         plt.show()
