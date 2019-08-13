@@ -17,7 +17,7 @@ def mc_pilco(init_states,
              mm_rewards=False,
              maximize=True,
              clip_grad=1.0,
-             cvar=False,
+             cvar_eps=0.0,
              reg_weight=0.0,
              discount=None,
              on_iteration=None,
@@ -105,9 +105,15 @@ def mc_pilco(init_states,
         else:
             returns = discounted_rewards.sum(0)
 
-        if cvar:
-            q = np.quantile(returns.detach(), 0.9)
-            loss = returns[returns.detach() > q].mean()
+        if cvar_eps > -1.0 and cvar_eps < 1.0 and cvar_eps != 0:
+            if cvar_eps > 0:
+                # worst case optimizer
+                q = np.quantile(returns.detach(), cvar_eps)
+                loss = returns[returns.detach() < q].mean()
+            elif cvar_eps < 0:
+                # best case optimizer
+                q = np.quantile(returns.detach(), -cvar_eps)
+                loss = returns[returns.detach() > q].mean()
         else:
             loss = returns.mean()
 
@@ -137,7 +143,6 @@ def mc_pilco(init_states,
             x0 = exp.sample_states(N_particles,
                                    timestep=step_idx_to_sample).to(
                                        dynamics.X.device).float()
-            x0 += 1e-1 * x0.std(0) * torch.randn_like(x0)
             init_states = x0
         else:
             x0 = init_states
@@ -283,7 +288,6 @@ class MCPILCOAgent(torch.nn.Module):
                     N_particles = init_states.shape[0]
                     x0 = torch.tensor(exp.sample_states(N_particles)).to(
                         dynamics.X.device).float()
-                    x0 += 1e-1 * x0.std(0) * torch.randn_like(x0)
                 else:
                     x0 = init_states
 
