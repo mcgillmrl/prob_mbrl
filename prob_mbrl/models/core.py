@@ -162,14 +162,22 @@ class Regressor(torch.nn.Module):
 
 
 class Policy(torch.nn.Module):
-    def __init__(self, model, maxU=1.0, minU=None, angle_dims=[]):
+    def __init__(
+            self,
+            model,
+            maxU=1.0,
+            minU=None,
+            angle_dims=[],
+    ):
         super(Policy, self).__init__()
         self.model = model
         self.register_buffer('angle_dims', torch.tensor(angle_dims).long())
         if minU is None:
             minU = -maxU
-        self.register_buffer('maxU', torch.tensor(maxU))
-        self.register_buffer('minU', torch.tensor(minU))
+        scale = maxU - minU
+        bias = minU
+        self.register_buffer('scale', torch.tensor(scale).squeeze())
+        self.register_buffer('bias', torch.tensor(bias).squeeze())
 
     def regularization_loss(self):
         return self.model.regularization_loss()
@@ -182,16 +190,22 @@ class Policy(torch.nn.Module):
         kwargs['resample'] = kwargs.get('resample', True)
         kwargs['return_samples'] = kwargs.get('return_samples', True)
         if return_numpy:
-            x = torch.tensor(x, dtype=self.maxU.dtype, device=self.maxU.device)
+            x = torch.tensor(x,
+                             dtype=self.scale.dtype,
+                             device=self.scale.device)
         else:
-            x = x.to(dtype=self.maxU.dtype, device=self.maxU.device)
+            x = x.to(dtype=self.scale.dtype, device=self.scale.device)
         if len(self.angle_dims) > 0:
             x = to_complex(x, self.angle_dims)
         u = self.model(x, **kwargs)
-        if isinstance(u, Iterable):
+
+        if isinstance(u, tuple):
             u, unoise = u
             u = u + unoise
-        u = u.max(self.minU).min(self.maxU)
+
+        # saturate output
+        u = self.scale * u.sigmoid() + self.bias
+
         if return_numpy:
             return u.detach().cpu().numpy()
         else:
