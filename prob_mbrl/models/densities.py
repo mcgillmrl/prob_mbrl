@@ -1,14 +1,68 @@
+import numpy as np
 import torch
 import warnings
 
 from torch.nn.functional import log_softmax
 from prob_mbrl.models.modules import StochasticModule
+from torch.nn.functional import log_softmax
+try:
+    from torch.distributions.utils import log_sum_exp as logsumexp
+except ImportError:
+    logsumexp = torch.logsumexp
+
+PI = {'default': torch.tensor(np.pi)}
+TWO_PI = {'default': 2 * PI['default']}
+LOG_TWO_PI = {'default': torch.log(TWO_PI['default'])}
+HALF_LOG_TWO_PI = {'default': 0.5 * LOG_TWO_PI['default']}
+
+
+class CategoricalDensity(StochasticModule):
+    def __init__(self, output_dims):
+        super(CategoricalDensity, self).__init__()
+        self.output_dims = output_dims
+        self.register_buffer('z', torch.ones([1, 1]))
+
+    def resample(self, *args, **kwargs):
+        self.z.data = torch.randn_like(self.z)
+
+    def forward(self,
+                x,
+                scaling_params=None,
+                return_samples=False,
+                output_noise=True,
+                resample_output_noise=True,
+                sampling_temperature=0.1,
+                **kwargs):
+        D = int(self.output_dims)
+        outs = x.split(D, -1)
+        if len(outs) == 2:
+            logits, log_temperature = outs
+        else:
+            logits = outs[0][:D]
+        if return_samples:
+            if (x.shape != self.z.shape) or resample_output_noise:
+                u = torch.distributions.utils.clamp_probs(torch.rand_like(x))
+                self.z.data = -(-u.log()).log()
+            z = self.z
+            # sample from gumbel softmax
+            y_soft = ((log_softmax(x, -1) + z) /
+                      sampling_temperature).softmax(-1)
+            y_idx = y_soft.argmax(-1).view(-1, 1)
+            y_hard = torch.zeros_like(y_soft).scatter(1, y_idx, 1)
+            # get hard max (but backprop through softmax)
+            y = ((y_hard - y_soft).detach() + y_soft)
+            return y
+        else:
+            return logits
+
+        def log_prob(self, z, logits):
+            pass
 
 
 class DiagGaussianDensity(StochasticModule):
     '''
         Rearranges the incoming dimensions to correspond to the parameters
-        of a Gaussian Density distribution.
+        of a Gaussian distribution, with diagonal covariance.
     '''
 
     def __init__(self, output_dims):
@@ -52,10 +106,33 @@ class DiagGaussianDensity(StochasticModule):
         else:
             return mean, log_std
 
+    def log_prob(self, z, mean, log_std=None):
+        ''' Computes the log likelihood for gaussian distributed predictions.
+            This assumes diagonal covariances
+        '''
+        global HALF_LOG_TWO_PI
+        D = self.output_dims
+        deltas = mean - z
+        # note that if noise is a 1xD vector, broadcasting
+        # rules apply
+        if log_std is not None:
+            device_id = str(z.device.type) + str(z.device.index)
+            if device_id not in HALF_LOG_TWO_PI:
+                HALF_LOG_TWO_PI[device_id] = HALF_LOG_TWO_PI['default'].to(
+                    z.device)
+            stds = log_std.clamp(-15, 15).exp()
+            lml = - 0.5 * ((deltas*stds.reciprocal())**2).sum(-1)\
+                - log_std.sum(-1)\
+                - D * HALF_LOG_TWO_PI[device_id]
+        else:
+            lml = -(deltas**2).sum(-1) * 0.5
+
+        return lml
+
 
 class GaussianMixtureDensity(StochasticModule):
     '''
-     Mixture of Gaussian Densities Network model. The components have diagonal
+     Mixture of Gaussian Density Network model. The components have diagonal
      covariance.
     '''
 
@@ -81,7 +158,8 @@ class GaussianMixtureDensity(StochasticModule):
                 **kwargs):
         D = int(self.output_dims)
         nD = D * self.n_components
-
+        if x.dim() == 1:
+            x = x.unsqueeze(0)
         outs = x.split(nD, -1)
         if len(outs) == 4:
             mean, log_std, logit_pi, log_temperature = outs
@@ -132,3 +210,22 @@ class GaussianMixtureDensity(StochasticModule):
             return samples
         else:
             return mean, log_std, logit_pi
+
+    def log_prob(self, z, mean, log_std, logit_pi):
+        global HALF_LOG_TWO_PI
+        D = self.output_dims
+        device_id = str(z.device.type) + str(z.device.index)
+        if device_id not in HALF_LOG_TWO_PI:
+            HALF_LOG_TWO_PI[device_id] = HALF_LOG_TWO_PI['default'].to(
+                z.device)
+        # get deltas wrt each mixture component
+        deltas = mean - z.unsqueeze(-1)
+
+        # weighted probabilities
+        stds = log_std.clamp(-15, 15).exp()
+        log_norm = -D * HALF_LOG_TWO_PI[device_id] - log_std.sum(-2)
+        dists = -0.5 * ((deltas * stds.reciprocal())**2).sum(-2)
+        log_probs = log_softmax(logit_pi, -1) + log_norm + dists
+
+        # total log probability
+        return logsumexp(log_probs, dim=-1, keepdim=True)
