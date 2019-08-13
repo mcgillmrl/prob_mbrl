@@ -107,7 +107,7 @@ class Cartpole(BaseInvertedPendulumEnv):
 
         return ob, reward, done, {}
 
-    def reset_model(self, init_state=[0, np.pi, 0, 0], init_state_std=1e-20):
+    def reset_model(self, init_state=[0, np.pi, 0, 0], init_state_std=2e-1):
         sigma = np.ones_like(init_state) * init_state_std
         qpos = self.init_qpos + self.np_random.normal(
             size=self.model.nq) * sigma[:2]
