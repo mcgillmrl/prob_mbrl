@@ -23,6 +23,7 @@ def rollout(states,
             infer_noise_variables=False,
             z_mm=None,
             z_rr=None,
+            breaking_condition=None,
             **kwargs):
     '''
         Obtains trajectory distribution (s_0, a_0, r_0, s_1, a_1, r_1,...)
@@ -37,8 +38,9 @@ def rollout(states,
             z1 = get_z_rnd(z_mm, i, states.shape, states.device)
             z2 = get_z_rnd(z_rr, i, (states.shape[0], 1), states.device)
 
-            # noise state measurement
+            # noisy state measurement
             states_ = states + state_noise
+
             # evaluate policy
             actions = policy(states_,
                              resample=resample_policy,
@@ -87,10 +89,13 @@ def rollout(states,
                 rewards = m + z2.mm(L)
 
             # noisy reward measurements
-            # rewards = rewards + reward_noise
+            # rewards = rewards + 0.1 * reward_noise
 
             trajectory.append((states, actions, rewards))
             states = next_states
+            if callable(breaking_condition):
+                if breaking_condition(states, actions, rewards):
+                    break
         except RuntimeError as e:
             if len(trajectory) > 5:
                 break
