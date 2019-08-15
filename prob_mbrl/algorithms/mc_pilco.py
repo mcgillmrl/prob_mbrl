@@ -2,7 +2,10 @@ import torch
 import numpy as np
 import tqdm
 
+from collections import defaultdict
 from prob_mbrl.utils import rollout, plot_trajectories
+
+policy_update_counter = defaultdict(lambda: 0)
 
 
 def mc_pilco(init_states,
@@ -23,7 +26,9 @@ def mc_pilco(init_states,
              on_iteration=None,
              step_idx_to_sample=None,
              init_state_noise=1e-1,
+             resampling_period=500,
              debug=False):
+    global policy_update_counter
     dynamics.eval()
     policy.train()
 
@@ -58,13 +63,14 @@ def mc_pilco(init_states,
     states = [init_states] * 2
     dynamics.eval()
     policy.train()
+    n_opt_steps = policy_update_counter[policy]
 
     for i in pbar:
         # zero gradients
         policy.zero_grad()
         dynamics.zero_grad()
         opt.zero_grad()
-        if not pegasus or i % (opt_iters / 2) == 1:
+        if not pegasus or n_opt_steps % resampling_period == 0:
             resample()
 
         # rollout policy
@@ -131,6 +137,7 @@ def mc_pilco(init_states,
 
         # update parameters
         opt.step()
+        n_opt_steps += 1
         pbar.set_description((msg % (rewards.sum(0).mean())) +
                              ' [{0}]'.format(len(rewards)))
 
@@ -149,6 +156,9 @@ def mc_pilco(init_states,
         else:
             x0 = init_states
         x0 = x0.detach()
+
+    policy.eval()
+    policy_update_counter[policy] = n_opt_steps
 
 
 class MCPILCOAgent(torch.nn.Module):
