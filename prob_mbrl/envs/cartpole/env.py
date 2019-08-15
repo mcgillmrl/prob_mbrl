@@ -158,7 +158,7 @@ class Cartpole(GymEnv):
 
     def reset(self,
               init_state=np.array([0.0, 0.0, 0.0, 0.0]),
-              init_state_std=2e-1):
+              init_state_std=1e-1):
         return super(Cartpole, self).reset(init_state, init_state_std)
 
     def render(self, mode="human", N=1):
