@@ -22,6 +22,7 @@ def mc_pilco(init_states,
              discount=None,
              on_iteration=None,
              step_idx_to_sample=None,
+             init_state_noise=1e-1,
              debug=False):
     dynamics.eval()
     policy.train()
@@ -143,6 +144,7 @@ def mc_pilco(init_states,
             x0 = exp.sample_states(N_particles,
                                    timestep=step_idx_to_sample).to(
                                        dynamics.X.device).float()
+            x0 += init_state_noise * torch.randn_like(x0)
             init_states = x0
         else:
             x0 = init_states
@@ -177,7 +179,10 @@ class MCPILCOAgent(torch.nn.Module):
                    clip_grad=1.0,
                    mpc=False,
                    max_steps=None,
-                   on_iteration=None):
+                   on_iteration=None,
+                   step_idx_to_sample=None,
+                   init_state_noise=1e-1,
+                   debug=False):
         '''
             Runs the MCPILCO loop
         '''
@@ -288,6 +293,7 @@ class MCPILCOAgent(torch.nn.Module):
                     N_particles = init_states.shape[0]
                     x0 = torch.tensor(exp.sample_states(N_particles)).to(
                         dynamics.X.device).float()
+                    x0 += init_state_noise * torch.randn_like(x0)
                 else:
                     x0 = init_states
 
