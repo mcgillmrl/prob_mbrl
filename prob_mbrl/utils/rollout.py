@@ -1,6 +1,42 @@
 import torch
 
 
+def mm_resample_infer_ns_(samples, z, jitter):
+    M = samples.shape[0]
+    m = samples.mean(0)
+    deltas = samples - m
+    S = deltas.t().mm(deltas) / (M - 1) + jitter
+    L = S.cholesky()
+    z = torch.mm(deltas, L.t().inverse()).detach()
+    z = z.detach()
+    return m + z.mm(L.t())
+
+
+def mm_resample_(samples, z, jitter):
+    M = samples.shape[0]
+    m = samples.mean(0)
+    deltas = samples - m
+    S = deltas.t().mm(deltas) / (M - 1) + jitter
+    L = S.cholesky()
+    # make sure we don't underestimate the uncertainty
+    z = (z - z.mean(0)) / z.std(0)
+    z = z.detach()
+    return m + z.mm(L.t())
+
+
+'''
+cpu_inputs = (torch.randn(100, 4).float(), torch.randn(100, 4).float(),
+              torch.eye(4).float())
+gpu_inputs = (torch.randn(100, 4).float().cuda(),
+              torch.randn(100, 4).float().cuda(), torch.eye(4).float().cuda())
+mm_resample_cpu = torch.jit.trace(mm_resample_, cpu_inputs)
+mm_resample_gpu = torch.jit.trace(mm_resample_, gpu_inputs)
+
+mm_resample_infer_ns_cpu = torch.jit.trace(mm_resample_infer_ns_, cpu_inputs)
+mm_resample_infer_ns_gpu = torch.jit.trace(mm_resample_infer_ns_, gpu_inputs)
+'''
+
+
 def get_z_rnd(z, i, shape, device=None):
     if z is not None:
         idxs = torch.arange(i, i + shape[0]).to(device).long()
@@ -30,8 +66,12 @@ def rollout(states,
         by rolling out the policy on the model, from the given set of states
     '''
     trajectory = []
-    M = states.shape[0]
     state_noise = torch.zeros_like(states)
+    jitter1, jitter2 = None, None
+
+    mm_resample = (mm_resample_infer_ns_
+                   if infer_noise_variables else mm_resample_)
+
     for i in range(steps):
         try:
             # sample (or query) random numbers
@@ -60,33 +100,17 @@ def rollout(states,
 
             # moment matching for states
             if mm_states:
-                m = next_states.mean(0)
-                deltas = next_states - m
-                jitter = 1e-12 * torch.eye(m.shape[-1], device=m.device)
-                S = deltas.t().mm(deltas) / (M - 1) + jitter
-                L = S.cholesky()
-                if infer_noise_variables:
-                    z1 = torch.mm(deltas, L.inverse()).detach()
-                else:
-                    # make sure we don't underestimate the uncertainty
-                    z1 = (z1 - z1.mean(0)) / z1.std(0)
-                z1 = z1.detach()
-                next_states = m + z1.mm(L)
+                if jitter1 is None:
+                    jitter1 = 1e-12 * torch.eye(states.shape[-1],
+                                                device=states.device)
+                next_states = mm_resample(next_states, z1, jitter1)
 
             # moment matching for rewards
             if mm_rewards:
-                m = rewards.mean(0)
-                deltas = rewards - m
-                jitter = 1e-12 * torch.eye(m.shape[-1], device=m.device)
-                S = deltas.t().mm(deltas) / (M - 1) + jitter
-                L = S.cholesky()
-                if infer_noise_variables:
-                    z2 = torch.mm(deltas, L.inverse()).detach()
-                else:
-                    # make sure we don't underestimate the uncertainty
-                    z2 = (z2 - z2.mean(0)) / z2.std(0)
-                z2 = z2.detach()
-                rewards = m + z2.mm(L)
+                if jitter2 is None:
+                    jitter2 = 1e-12 * torch.eye(rewards.shape[-1],
+                                                device=rewards.device)
+                rewards = mm_resample(rewards, z2, jitter2)
 
             # noisy reward measurements
             # rewards = rewards + 0.1 * reward_noise
