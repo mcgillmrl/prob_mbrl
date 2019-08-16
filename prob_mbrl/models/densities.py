@@ -129,6 +129,10 @@ class DiagGaussianDensity(StochasticModule):
 
         return lml
 
+    def __repr__(self):
+        return self.__class__.__name__ + '(output_dims=%d)' % (
+            self.output_dims)
+
 
 class GaussianMixtureDensity(StochasticModule):
     '''
@@ -229,3 +233,7 @@ class GaussianMixtureDensity(StochasticModule):
 
         # total log probability
         return logsumexp(log_probs, dim=-1, keepdim=True)
+
+    def __repr__(self):
+        return self.__class__.__name__ + '(output_dims=%d, n_components=%d)' % (
+            self.output_dims, self.n_components)
