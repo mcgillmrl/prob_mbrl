@@ -26,7 +26,7 @@ from ...utils import angles
 
 class PendulumReward(torch.nn.Module):
     def __init__(self,
-                 pole_length=0.5,
+                 pole_length=1.0,
                  target=torch.tensor([np.pi, 0]),
                  Q=4.0 * torch.eye(2),
                  R=1e-4 * torch.eye(1)):
@@ -57,7 +57,10 @@ class PendulumReward(torch.nn.Module):
             -self.pole_length * targeta[:, 2:3]
         ],
                                   dim=-1)
-        xa = angles.to_complex(x, [0])
+        if x.shape[-1] != targeta.shape[-1]:
+            xa = angles.to_complex(x, [0])
+        else:
+            xa = x
         pole_tip_xy = torch.cat(
             [self.pole_length * xa[:, 1:2], -self.pole_length * xa[:, 2:3]],
             dim=-1)
@@ -73,7 +76,7 @@ class PendulumReward(torch.nn.Module):
         # reward is negative cost.
         # optimizing the exponential of the negative cost
         # clamping for numerical stability
-        reward = (-(cost.clamp(0, 15))).exp()
+        reward = (-(cost.clamp(0, 25))).exp()
         return reward
 
 
@@ -89,14 +92,18 @@ class Pendulum(GymEnv):
         "video.frames_per_second": 30,
     }
 
-    def __init__(self, model=None, reward_func=None):
+    def __init__(self, model=None, reward_func=None, **kwargs):
         if model is None:
             model = PendulumModel()
         # init parent class
         reward_func = reward_func if callable(reward_func) else PendulumReward(
             pole_length=model.l)
         measurement_noise = torch.tensor([0.1, 0.01])
-        super(Pendulum, self).__init__(model, reward_func, measurement_noise)
+        super(Pendulum, self).__init__(model,
+                                       reward_func,
+                                       measurement_noise,
+                                       angle_dims=[0],
+                                       **kwargs)
 
         # init this class
         high = np.array([2.5])
@@ -114,7 +121,7 @@ class Pendulum(GymEnv):
                                             high=high,
                                             dtype=np.float32)
 
-    def reset(self, init_state=np.array([0.0, 0.0]), init_state_std=2e-1):
+    def reset(self, init_state=np.array([0.0, 0.0]), init_state_std=1e-2):
         return super(Pendulum, self).reset(init_state, init_state_std)
 
     def render(self, mode="human"):

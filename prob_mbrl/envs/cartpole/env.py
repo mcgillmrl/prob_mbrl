@@ -57,7 +57,10 @@ class CartpoleReward(torch.nn.Module):
             -self.pole_length * targeta[:, 4, None]
         ],
                                   dim=-1)
-        xa = angles.to_complex(x, [2])
+        if x.shape[-1] != targeta.shape[-1]:
+            xa = angles.to_complex(x, [2])
+        else:
+            xa = x
         pole_tip_xy = torch.cat([
             xa[:, 0, None] + self.pole_length * xa[:, 3, None],
             -self.pole_length * xa[:, 4, None]
@@ -80,7 +83,7 @@ class CartpoleReward(torch.nn.Module):
         # reward is negative cost.
         # optimizing the exponential of the negative cost
         # clamping for numerical stability
-        reward = (-(cost.clamp(0, 15))).exp()
+        reward = (-(cost.clamp(0, 25))).exp()
         return reward
 
 
@@ -113,14 +116,18 @@ class Cartpole(GymEnv):
         "video.frames_per_second": 50,
     }
 
-    def __init__(self, model=None, reward_func=None):
+    def __init__(self, model=None, reward_func=None, **kwargs):
         if model is None:
             model = CartpoleModel()
         # init parent class
         reward_func = reward_func if callable(reward_func) else CartpoleReward(
             pole_length=model.lp)
         measurement_noise = 0 * torch.tensor([0.01] * 4)
-        super(Cartpole, self).__init__(model, reward_func, measurement_noise)
+        super(Cartpole, self).__init__(model,
+                                       reward_func,
+                                       measurement_noise,
+                                       angle_dims=[2],
+                                       **kwargs)
 
         # init this class
         high = np.array([10])
@@ -145,7 +152,7 @@ class Cartpole(GymEnv):
 
     def step(self,
              action,
-             x_lim=[-2.0, 2.0],
+             x_lim=[-3.5, 3.5],
              ang_lim=[-4 * np.pi, 4 * np.pi],
              **kwargs):
         state, reward, done, info = super(Cartpole,

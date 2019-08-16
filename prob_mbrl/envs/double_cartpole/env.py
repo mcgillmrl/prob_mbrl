@@ -32,18 +32,21 @@ class DoubleCartpoleReward(torch.nn.Module):
                  Q=8.0 * torch.eye(2),
                  R=1e-3 * torch.eye(1)):
         super(DoubleCartpoleReward, self).__init__()
-        self.Q = torch.nn.Parameter(torch.tensor(Q), requires_grad=False)
-        self.R = torch.nn.Parameter(torch.tensor(R), requires_grad=False)
+        self.Q = torch.nn.Parameter(Q, requires_grad=False)
+        self.R = torch.nn.Parameter(R, requires_grad=False)
         if target.dim() == 1:
             target = target.unsqueeze(0)
-        self.target = torch.nn.Parameter(torch.tensor(target),
-                                         requires_grad=False)
-        self.pole1_length = torch.nn.Parameter(torch.tensor(pole1_length),
+        self.target = torch.nn.Parameter(target, requires_grad=False)
+        self.pole1_length = torch.nn.Parameter(pole1_length,
                                                requires_grad=False)
-        self.pole2_length = torch.nn.Parameter(torch.tensor(pole2_length),
+        self.pole2_length = torch.nn.Parameter(pole2_length,
                                                requires_grad=False)
 
     def forward(self, x, u):
+        if not isinstance(x, torch.Tensor):
+            x = torch.tensor(x)
+        if not isinstance(u, torch.Tensor):
+            u = torch.tensor(u)
         x = x.to(device=self.Q.device, dtype=self.Q.dtype)
         u = u.to(device=self.Q.device, dtype=self.Q.dtype)
         if x.dim() == 1:
@@ -60,7 +63,11 @@ class DoubleCartpoleReward(torch.nn.Module):
             self.pole2_length * targeta[:, 7:8]
         ],
                                   dim=-1)
-        xa = angles.to_complex(x, [2, 4])
+
+        if x.shape[-1] != targeta.shape[-1]:
+            xa = angles.to_complex(x, [2, 4])
+        else:
+            xa = x
         pole_tip_xy = torch.cat([
             xa[:, 0:1] - self.pole1_length * xa[:, 4:5] -
             self.pole2_length * xa[:, 5:6],
@@ -80,7 +87,7 @@ class DoubleCartpoleReward(torch.nn.Module):
         # reward is negative cost.
         # optimizing the exponential of the negative cost
         # clamping for numerical stability
-        reward = (-(cost.clamp(0, 15))).exp()
+        reward = (-(cost.clamp(0, 25))).exp()
         return reward
 
 
@@ -92,7 +99,7 @@ class DoubleCartpole(GymEnv):
         "video.frames_per_second": 50,
     }
 
-    def __init__(self, model=None, reward_func=None):
+    def __init__(self, model=None, reward_func=None, **kwargs):
         if model is None:
             model = DoubleCartpoleModel()
         # init parent class
@@ -100,8 +107,11 @@ class DoubleCartpole(GymEnv):
             reward_func) else DoubleCartpoleReward(pole1_length=model.l1,
                                                    pole2_length=model.l2)
         measurement_noise = torch.tensor([0.01] * 6)
-        super(DoubleCartpole, self).__init__(model, reward_func,
-                                             measurement_noise)
+        super(DoubleCartpole, self).__init__(model,
+                                             reward_func,
+                                             measurement_noise,
+                                             angle_dims=[2, 4],
+                                             **kwargs)
 
         # init this class
         high = np.array([20])

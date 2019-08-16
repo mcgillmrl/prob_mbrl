@@ -31,7 +31,7 @@ class PendulumModel(DynamicsModel):
         theta: 0 is pointing up and increasing counter-clockwise.
     """
 
-    def __init__(self, dt=0.1, m=1.0, l=1.0, mu=0.1, g=9.80665):
+    def __init__(self, dt=0.1, m=1.0, l=1.0, mu=0.01, g=9.82):
         """Constructs PendulumDynamicsModel.
 
         Args:
@@ -111,7 +111,6 @@ class PendulumModel(DynamicsModel):
         torque = u[..., 0]
 
         sin_theta = theta.sin() if torch.is_grad_enabled() else np.sin(theta)
-        cos_theta = theta.cos() if torch.is_grad_enabled() else np.cos(theta)
 
         # Define acceleration.
         temp = m * l
