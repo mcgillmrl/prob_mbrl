@@ -99,7 +99,7 @@ class GymEnv(gym.Env):
         if self.angle_dims is not None:
             state = to_complex(state, self.angle_dims)
 
-        if isinstance(state, torch.Tensor):
+        if not grads and isinstance(state, torch.Tensor):
             state = state.detach().cpu().numpy()
 
         return state, reward, done, {}
@@ -211,8 +211,9 @@ class DynamicsModel(torch.nn.Module):
                 def dyn_fn(t, z_t):
                     return self.dynamics(z_t, self.action, t)
 
-                self.solver = ode(dyn_fn).set_integrator(
-                    'dopri5', atol=1e-9, rtol=1e-9)
+                self.solver = ode(dyn_fn).set_integrator('dopri5',
+                                                         atol=1e-9,
+                                                         rtol=1e-9)
 
             if isinstance(state, torch.Tensor):
                 state_ = state.detach().numpy()
