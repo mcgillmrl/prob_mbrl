@@ -1,5 +1,7 @@
 import torch
 
+jit_scripts = {}
+
 
 def mm_resample_infer_ns_(samples, z, jitter):
     M = samples.shape[0]
@@ -24,17 +26,17 @@ def mm_resample_(samples, z, jitter):
     return m + z.mm(L.t())
 
 
-'''
-cpu_inputs = (torch.randn(100, 4).float(), torch.randn(100, 4).float(),
-              torch.eye(4).float())
-gpu_inputs = (torch.randn(100, 4).float().cuda(),
-              torch.randn(100, 4).float().cuda(), torch.eye(4).float().cuda())
-mm_resample_cpu = torch.jit.trace(mm_resample_, cpu_inputs)
-mm_resample_gpu = torch.jit.trace(mm_resample_, gpu_inputs)
+def get_mm_resample_script(samples, z, jitter, infer_noise_variables):
+    global jit_scripts
+    inputs = (samples, z, jitter)
+    key = (str(inp.type()) + '_' + str(inp.device) for inp in inputs)
+    key = '_'.join(key) + str(infer_noise_variables)
+    if key not in jit_scripts:
+        mm_resample = (mm_resample_infer_ns_
+                       if infer_noise_variables else mm_resample_)
 
-mm_resample_infer_ns_cpu = torch.jit.trace(mm_resample_infer_ns_, cpu_inputs)
-mm_resample_infer_ns_gpu = torch.jit.trace(mm_resample_infer_ns_, gpu_inputs)
-'''
+        jit_scripts[key] = torch.jit.trace(mm_resample, inputs)
+    return jit_scripts[key]
 
 
 def get_z_rnd(z, i, shape, device=None):
@@ -69,8 +71,11 @@ def rollout(states,
     state_noise = torch.zeros_like(states)
     jitter1, jitter2 = None, None
 
-    mm_resample = (mm_resample_infer_ns_
-                   if infer_noise_variables else mm_resample_)
+    #mm_resample = (mm_resample_infer_ns_
+    #               if infer_noise_variables else mm_resample_)
+    mm_resample = get_mm_resample_script(states, torch.randn_like(states),
+                                         torch.eye(states.shape[-1]),
+                                         infer_noise_variables)
 
     for i in range(steps):
         try:
@@ -87,6 +92,7 @@ def rollout(states,
                              output_noise=True,
                              return_samples=True,
                              resample_output_noise=resample_action_noise)
+
             # propagate state particles (and obtain rewards)
             outs = dynamics((states, actions),
                             output_noise=True,
