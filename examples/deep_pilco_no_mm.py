@@ -8,27 +8,28 @@ import tensorboardX
 from prob_mbrl import utils, models, algorithms, envs
 from functools import partial
 torch.set_num_threads(4)
+torch.manual_seed(0)
+np.random.seed(0)
 
 if __name__ == '__main__':
     # parameters
     n_rnd = 5
     pred_H = 25
-    control_H = 60
-    N_particles = 200
+    control_H = 40
+    N_particles = 100
     N_polopt = 1000
     N_dynopt = 2000
     N_ps = 250
     dyn_components = 1
-    dyn_hidden = [200] * 4
-    pol_hidden = [200] * 4
+    dyn_hidden = [200] * 2
+    pol_hidden = [200] * 2
     use_cuda = False
     learn_reward = True
     keep_best = False
 
     # initialize environment
-    env = envs.mj_cartpole.Cartpole()
-    #import gym
-    #env = gym.make("HalfCheetah-v2")
+    env = envs.Cartpole()
+
     results_filename = os.path.expanduser(
         "~/.prob_mbrl/results_%s_%s.pth.tar" %
         (env.__class__.__name__,
@@ -149,7 +150,7 @@ if __name__ == '__main__':
         x0 = x0 + 1e-2 * x0.std(0) * torch.randn_like(x0)
         x0 = x0.detach()
 
-        #utils.plot_rollout(x0[:25], dyn, pol, pred_H * 2)
+        utils.plot_rollout(x0[:25], dyn, pol, pred_H * 2)
 
         # train policy
         def on_iteration(i, loss, states, actions, rewards, opt, policy,
@@ -182,6 +183,6 @@ if __name__ == '__main__':
                             maximize=True,
                             clip_grad=1.0,
                             on_iteration=on_iteration)
-        #utils.plot_rollout(x0[:25], dyn, pol, pred_H * 2)
+        utils.plot_rollout(x0[:25], dyn, pol, pred_H * 2)
         writer.add_scalar('robot/evaluation_loss',
                           torch.tensor(ret[2]).sum(), ps_it + 1)
