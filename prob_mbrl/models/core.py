@@ -195,6 +195,8 @@ class Policy(torch.nn.Module):
                              device=self.scale.device)
         else:
             x = x.to(dtype=self.scale.dtype, device=self.scale.device)
+        if x.dim() == 1:
+            x = x[None, :]
         if len(self.angle_dims) > 0:
             x = to_complex(x, self.angle_dims)
         u = self.model(x, **kwargs)
