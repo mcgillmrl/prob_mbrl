@@ -62,6 +62,7 @@ def rollout(states,
             z_mm=None,
             z_rr=None,
             breaking_condition=None,
+            on_step=None,
             **kwargs):
     '''
         Obtains trajectory distribution (s_0, a_0, r_0, s_1, a_1, r_1,...)
@@ -93,7 +94,7 @@ def rollout(states,
                              return_samples=True,
                              resample_output_noise=resample_action_noise)
 
-            # propagate state particles (and obtain rewards)
+            # propagate state particles (and obtain rewards) TODO: make this an env.step call
             outs = dynamics((states, actions),
                             output_noise=True,
                             return_samples=True,
@@ -124,10 +125,40 @@ def rollout(states,
             trajectory.append((states, actions, rewards))
             states = next_states
             if callable(breaking_condition):
-                if breaking_condition(states, actions, rewards):
+                if breaking_condition(trajectory):
                     break
+            if callable(on_step):
+                on_step(trajectory)
         except RuntimeError as e:
             if len(trajectory) > 5:
                 break
             raise e
+    trajectory = [torch.stack(x) for x in zip(*trajectory)]
     return trajectory
+
+
+def rollout_with_Qvalues(states,
+                         dynamics,
+                         policy,
+                         Q,
+                         steps,
+                         resample_model=False,
+                         resample_policy=False,
+                         resample_state_noise=True,
+                         resample_action_noise=True,
+                         mm_states=False,
+                         mm_rewards=False,
+                         infer_noise_variables=False,
+                         z_mm=None,
+                         z_rr=None,
+                         breaking_condition=None,
+                         on_step=None,
+                         **kwargs):
+    def compute_values(trajectory):
+        # get last step
+        states, actions, rewards = trajectory[-1]
+        # compute and append values for last step
+        values = Q(torch.cat([states, actions], -1))
+        trajectory[-1].append(values)
+        if callable(on_step):
+            on_step(trajectory)
