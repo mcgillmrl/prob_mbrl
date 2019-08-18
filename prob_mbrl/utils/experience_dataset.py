@@ -108,19 +108,17 @@ class ExperienceDataset(torch.nn.Module):
     def truncate(self, episode):
         ''' Resets the experience to start from the given episode number'''
         if episode <= self.curr_episode and episode > 0:
-            # Let's give people a last chance of recovering their data. Also,
-            # we don't want to save an empty experience dataset
             fmt = 'Resetting experience dataset to episode %d'
             fmt += ' (WARNING: data from %s will be overwritten)'
             #utils.print_with_stamp(fmt % (episode, self.filename), self.name)
             self.curr_episode = episode
-            self.time_stamps = self.time_stamps[:episode]
-            self.states = self.states[:episode]
-            self.actions = self.actions[:episode]
-            self.rewards = self.rewards[:episode]
-            self.info = self.info[:episode]
-            self.policy_parameters = self.policy_parameters[:episode]
-            self.state_changed = True
+            self.time_stamps = self.time_stamps[episode:]
+            self.states = self.states[episode:]
+            self.actions = self.actions[episode:]
+            self.rewards = self.rewards[episode:]
+            self.done = self.done[episode:]
+            self.info = self.info[episode:]
+            self.policy_parameters = self.policy_parameters[episode:]
 
     def get_dynmodel_dataset(self,
                              deltas=True,
@@ -244,7 +242,7 @@ class ExperienceDataset(torch.nn.Module):
             if not isinstance(timestep, collections.Iterable):
                 timestep = [timestep]
 
-            x0 = np.concatenate([[ep[t] for t in timestep]
+            x0 = np.concatenate([[ep[t] for t in timestep if t < len(ep)]
                                  for ep in self.states])
 
         # sample indices
