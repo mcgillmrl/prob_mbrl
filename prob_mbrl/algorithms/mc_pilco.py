@@ -3,7 +3,7 @@ import numpy as np
 import tqdm
 
 from collections import defaultdict
-from prob_mbrl.utils import rollout, plot_trajectories
+from prob_mbrl import utils
 
 policy_update_counter = defaultdict(lambda: 0)
 
@@ -25,7 +25,7 @@ def mc_pilco(init_states,
              discount=None,
              on_iteration=None,
              step_idx_to_sample=None,
-             init_state_noise=1e-1,
+             init_state_noise=0.0,
              resampling_period=500,
              debug=False):
     global policy_update_counter
@@ -76,19 +76,20 @@ def mc_pilco(init_states,
         # rollout policy
         H = steps
         try:
-            trajs = rollout(x0,
-                            dynamics,
-                            policy,
-                            H,
-                            resample_state_noise=not pegasus,
-                            resample_action_noise=not pegasus,
-                            mm_states=mm_states,
-                            mm_rewards=mm_rewards,
-                            z_mm=z_mm if pegasus else None,
-                            z_rr=z_rr if pegasus else None)
-            states, actions, rewards = (torch.stack(x) for x in zip(*trajs))
+            trajectories = utils.rollout(x0,
+                                         dynamics,
+                                         policy,
+                                         H,
+                                         resample_state_noise=not pegasus,
+                                         resample_action_noise=not pegasus,
+                                         mm_states=mm_states,
+                                         mm_rewards=mm_rewards,
+                                         z_mm=z_mm if pegasus else None,
+                                         z_rr=z_rr if pegasus else None)
+            # dims are timesteps x batch size x state/action/reward dims
+            states, actions, rewards = trajectories
             if debug and i % 100 == 0:
-                plot_trajectories(
+                utils.plot_trajectories(
                     states.transpose(0, 1).cpu().detach().numpy(),
                     actions.transpose(0, 1).cpu().detach().numpy(),
                     rewards.transpose(0, 1).cpu().detach().numpy())
@@ -158,6 +159,7 @@ def mc_pilco(init_states,
         x0 = x0.detach()
 
     policy.eval()
+    dynamics.eval()
     policy_update_counter[policy] = n_opt_steps
 
 
@@ -167,145 +169,180 @@ class MCPILCOAgent(torch.nn.Module):
     '''
 
     def __init__(self,
-                 policy=None,
-                 dynmodel=None,
-                 reward_func=None,
-                 dataset=None):
+                 policy,
+                 dynamics,
+                 dataset,
+                 pol_optimizer=None,
+                 dyn_optimizer=None):
         super(MCPILCOAgent, self).__init__()
-        self.dataset = dataset
         self.pol = policy
-        self.dyn = dynmodel
+        self.pol_optimizer = pol_optimizer
+        self.dyn = dynamics
+        self.dyn_optimizer = dyn_optimizer
+        self.exp = dataset
+        self.policy_update_counter = 0
 
-    def fit_policy(self,
-                   init_states,
-                   steps,
-                   opt=None,
-                   exp=None,
-                   opt_iters=1000,
-                   pegasus=True,
-                   mm_states=False,
-                   mm_rewards=False,
-                   maximize=True,
-                   clip_grad=1.0,
-                   mpc=False,
-                   max_steps=None,
-                   on_iteration=None,
-                   step_idx_to_sample=None,
-                   init_state_noise=1e-1,
-                   debug=False):
-        '''
-            Runs the MCPILCO loop
-        '''
-        dynamics = self.dyn
-        policy = self.pol
-        msg = ("Cumm. rewards: %f" if maximize else "Cumm. costs: %f")
+    def sample_initial_states(self,
+                              batch_size,
+                              step_idx_to_sample=None,
+                              init_state_noise=0.0):
+        x0 = self.exp.sample_states(batch_size, timestep=step_idx_to_sample)
+        x0 = x0.to(self.dyn.X.device, self.dyn.X.dtype)
+        x0 += init_state_noise * torch.randn_like(x0)
+        return x0
+
+    def train(self,
+              steps,
+              batch_size=100,
+              opt_iters=1000,
+              pegasus=True,
+              mm_states=False,
+              mm_rewards=False,
+              maximize=True,
+              clip_grad=1.0,
+              cvar_eps=0.0,
+              reg_weight=0.0,
+              discount=None,
+              on_iteration=None,
+              step_idx_to_sample=None,
+              init_state_noise=0.0,
+              resampling_period=500,
+              debug=False):
+        # init optimizer
+        self.dynamics.eval()
+        self.policy.train()
+        opt = self.pol_optimizer
         if opt is None:
-            params = filter(lambda p: p.requires_grad, policy.parameters())
+            params = filter(lambda p: p.requires_grad, self.pol.parameters())
             opt = torch.optim.Adam(params)
+
+        # init function for computing discount
+        if discount is None:
+            discount = lambda i: 1.0 / steps  # noqa: E731
+        elif not callable(discount):
+            discount_factor = discount
+            discount = lambda i: discount_factor**i  # noqa: E731
+
+        # init progress bar
+        msg = ("Pred. Cumm. rewards: %f"
+               if maximize else "Pred. Cumm. costs: %f")
         pbar = tqdm.tqdm(range(opt_iters), total=opt_iters)
-        max_steps = steps if max_steps is None else max_steps
+
+        # init random numbers
+        init_states = self.sample_initial_states(batch_size,
+                                                 step_idx_to_sample,
+                                                 init_state_noise)
         D = init_states.shape[-1]
         shape = init_states.shape
-        z_mm = None
-        z_rr = None
-        if pegasus:
-            # sample initial random numbers
-            z_mm = torch.randn(steps + shape[0], *shape[1:])
-            z_mm = z_mm.reshape(-1, D).float().to(dynamics.X.device)
-            z_rr = torch.randn(steps + shape[0], 1)
-            z_rr = z_rr.reshape(-1, 1).float().to(dynamics.X.device)
-            dynamics.resample()
-            policy.resample()
+        dtype = init_states.dtype
+        device = init_states.device
+        z_mm = torch.randn(steps + shape[0],
+                           *shape[1:]).reshape(-1, D).to(device, dtype)
+        z_rr = torch.randn(steps + shape[0], 1).reshape(-1,
+                                                        1).to(device, dtype)
 
-        init_timestep = 0
-        x0 = init_states
-        states = [init_states] * 2
-        sample_idx = torch.tensor(1).random_(0, x0.shape[0])
-        dynamics.eval()
-        policy.train()
-        policy.zero_grad()
-        dynamics.zero_grad()
+        # sample initial random numbers
+        def resample():
+            self.dyn.resample()
+            self.pol.resample()
+            z_mm.normal_()
+            z_rr.normal_()
+
+        resample()
 
         for i in pbar:
-            if mpc:
-                if init_timestep != 0:
-                    # start from a sample from next simulated timestep
-                    x0 = states[1].detach()
-                    sample_idx.random_(x0.shape[0])
-                    x0 = x0[sample_idx] * torch.ones_like(x0)
-                    # add noise
-                    x0 += init_states.std(0) * torch.randn_like(x0)
-
-                init_timestep = (init_timestep + 1) % steps
+            # zero gradients
+            self.pol.zero_grad()
+            self.dyn.zero_grad()
+            opt.zero_grad()
+            if (not pegasus
+                    or self.policy_update_counter % resampling_period == 0):
+                resample()
 
             # rollout policy
-            H = max_steps if mpc and init_timestep != 1 else steps
-            n_retries = 4
-            retries = 0
-            while retries < n_retries:
-                try:
-                    trajs = rollout(x0,
-                                    dynamics,
-                                    policy,
-                                    H,
-                                    resample_state_noise=not pegasus,
-                                    resample_action_noise=not pegasus,
-                                    mm_states=mm_states,
-                                    mm_rewards=mm_rewards,
-                                    z_mm=z_mm,
-                                    z_rr=z_rr)
-                    break
-                except RuntimeError:
-                    # resample random numbers
-                    dynamics.resample()
-                    policy.resample()
-                    retries += 1
-            states, actions, rewards = (torch.stack(x) for x in zip(*trajs))
+            try:
+                trajectories = utils.rollout(init_states,
+                                             self.dyn,
+                                             self.pol,
+                                             steps,
+                                             resample_state_noise=not pegasus,
+                                             resample_action_noise=not pegasus,
+                                             mm_states=mm_states,
+                                             mm_rewards=mm_rewards,
+                                             z_mm=z_mm if pegasus else None,
+                                             z_rr=z_rr if pegasus else None)
+                # dims are timesteps x batch size x state/action/reward dims
+                states, actions, rewards = trajectories
+                if debug and i % 100 == 0:
+                    utils.plot_trajectories(
+                        states.transpose(0, 1).cpu().detach().numpy(),
+                        actions.transpose(0, 1).cpu().detach().numpy(),
+                        rewards.transpose(0, 1).cpu().detach().numpy())
+            except RuntimeError:
+                import traceback
+                traceback.print_exc()
+                print("RuntimeError")
+                # resample random numbers
+                resample()
+                init_states = self.sample_initial_states(
+                    batch_size, step_idx_to_sample, init_state_noise)
+                continue
 
-            # calculate loss. average over batch index, sum over time
-            # step index
+            # calculate loss. average over batch index, sum over time step
+            # index
+            discounted_rewards = torch.stack(
+                [r * discount(i) for i, r in enumerate(rewards)])
+
             if maximize:
-                loss = -rewards.sum(0).mean()
+                returns = -discounted_rewards.sum(0)
             else:
-                loss = rewards.sum(0).mean()
+                returns = discounted_rewards.sum(0)
 
-            if init_timestep == mpc * 1:
-                loss0 = loss
+            if cvar_eps > -1.0 and cvar_eps < 1.0 and cvar_eps != 0:
+                if cvar_eps > 0:
+                    # worst case optimizer
+                    q = np.quantile(returns.detach(), cvar_eps)
+                    loss = returns[returns.detach() < q].mean()
+                elif cvar_eps < 0:
+                    # best case optimizer
+                    q = np.quantile(returns.detach(), -cvar_eps)
+                    loss = returns[returns.detach() > q].mean()
+            else:
+                loss = returns.mean()
+
+            # add regularization penalty
+            if reg_weight > 0:
+                loss = loss + reg_weight * policy.regularization_loss()
+
             # compute gradients
             loss.backward()
 
-            if init_timestep == 0:
-                # clip gradients
-                if clip_grad is not None:
-                    torch.nn.utils.clip_grad_norm_(policy.parameters(),
-                                                   clip_grad)
+            # clip gradients
+            if clip_grad is not None:
+                torch.nn.utils.clip_grad_norm_(policy.parameters(), clip_grad)
 
-                # update parameters
-                opt.step()
-                pbar.set_description((msg % (loss0)) +
-                                     ' [{0}]'.format(len(rewards)))
+            # update parameters
+            opt.step()
+            n_opt_steps += 1
+            pbar.set_description((msg % (rewards.sum(0).mean())) +
+                                 ' [{0}]'.format(len(rewards)))
 
-                if callable(on_iteration):
-                    on_iteration(i, loss, states, actions, rewards, opt,
-                                 policy, dynamics)
+            if callable(on_iteration):
+                on_iteration(i, loss, states, actions, rewards, opt, policy,
+                             dynamics)
 
-                # zero gradients
-                policy.zero_grad()
-                dynamics.zero_grad()
+            # sample initial states
+            N_particles = init_states.shape[0]
+            x0 = exp.sample_states(N_particles,
+                                   timestep=step_idx_to_sample).to(
+                                       dynamics.X.device).float()
+            x0 += init_state_noise * torch.randn_like(x0)
+            init_states = x0
+            x0 = x0.detach()
 
-                # setup dynamics and policy
-                if not pegasus:
-                    dynamics.resample()
-                    policy.resample()
-
-                # sample initial states
-                if exp is not None:
-                    N_particles = init_states.shape[0]
-                    x0 = torch.tensor(exp.sample_states(N_particles)).to(
-                        dynamics.X.device).float()
-                    x0 += init_state_noise * torch.randn_like(x0)
-                else:
-                    x0 = init_states
+        policy.eval()
+        dynamics.eval()
+        policy_update_counter[policy] = n_opt_steps
 
     def fit_dynamics(self):
         '''
