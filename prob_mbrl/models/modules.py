@@ -52,7 +52,7 @@ class BDropout(StochasticModule):
             return x * torch.bernoulli(self.p.expand(x.shape))
 
         # we never need the noise gradients
-        return x * self.noise[:x.shape[0]].detach()
+        return x * self.noise[..., :x.shape[-mask_dims], :].detach()
 
     def extra_repr(self):
         return 'rate={}, regularizer_scale={}'.format(self.rate,
@@ -128,7 +128,7 @@ class CDropout(BDropout):
                 self.update_concrete_noise(noise)
             # We never need these gradients in evaluation mode.
             concrete_noise = self.concrete_noise.detach()
-        return x * concrete_noise[:x.shape[0]]
+        return x * concrete_noise[..., :x.shape[-mask_dims], :]
 
     def extra_repr(self):
         return 'rate={}, temperature={}, regularizer_scale={}'.format(
