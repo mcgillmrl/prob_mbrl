@@ -15,6 +15,7 @@ def mc_pilco(init_states,
              opt=None,
              exp=None,
              opt_iters=1000,
+             value_func=None,
              pegasus=True,
              mm_states=False,
              mm_rewards=False,
@@ -23,6 +24,7 @@ def mc_pilco(init_states,
              cvar_eps=0.0,
              reg_weight=0.0,
              discount=None,
+             on_rollout=None,
              on_iteration=None,
              step_idx_to_sample=None,
              init_state_noise=0.0,
@@ -51,8 +53,11 @@ def mc_pilco(init_states,
     z_rr = z_rr.reshape(-1, 1).float().to(dynamics.X.device)
 
     def resample():
-        dynamics.resample()
-        policy.resample()
+        seed = torch.randint(2**32, [1])
+        dynamics.resample(seed=seed)
+        policy.resample(seed=seed)
+        if value_func is not None:
+            value_func.resample(seed=seed)
         z_mm.normal_()
         z_rr.normal_()
 
@@ -88,11 +93,8 @@ def mc_pilco(init_states,
                                          z_rr=z_rr if pegasus else None)
             # dims are timesteps x batch size x state/action/reward dims
             states, actions, rewards = trajectories
-            if debug and i % 100 == 0:
-                utils.plot_trajectories(
-                    states.transpose(0, 1).cpu().detach().numpy(),
-                    actions.transpose(0, 1).cpu().detach().numpy(),
-                    rewards.transpose(0, 1).cpu().detach().numpy())
+            if callable(on_rollout):
+                on_rollout(i, states, actions, rewards, discount)
         except RuntimeError:
             import traceback
             traceback.print_exc()
@@ -107,6 +109,10 @@ def mc_pilco(init_states,
         # calculate loss. average over batch index, sum over time step index
         discounted_rewards = torch.stack(
             [r * discount(i) for i, r in enumerate(rewards)])
+        if value_func is not None:
+            Vend = value_func(states[-1:], resample=False)
+            discounted_rewards = torch.cat(
+                [discounted_rewards, discount(H) * Vend], 0)
 
         if maximize:
             returns = -discounted_rewards.sum(0)
@@ -143,8 +149,7 @@ def mc_pilco(init_states,
                              ' [{0}]'.format(len(rewards)))
 
         if callable(on_iteration):
-            on_iteration(i, loss, states, actions, rewards, opt, policy,
-                         dynamics)
+            on_iteration(i, loss, states, actions, rewards, discount)
 
         # sample initial states
         if exp is not None:
@@ -161,6 +166,7 @@ def mc_pilco(init_states,
     policy.eval()
     dynamics.eval()
     policy_update_counter[policy] = n_opt_steps
+    print(policy_update_counter[policy])
 
 
 class MCPILCOAgent(torch.nn.Module):
@@ -328,8 +334,7 @@ class MCPILCOAgent(torch.nn.Module):
                                  ' [{0}]'.format(len(rewards)))
 
             if callable(on_iteration):
-                on_iteration(i, loss, states, actions, rewards, opt, policy,
-                             dynamics)
+                on_iteration(i, loss, states, actions, rewards, discount)
 
             # sample initial states
             N_particles = init_states.shape[0]
