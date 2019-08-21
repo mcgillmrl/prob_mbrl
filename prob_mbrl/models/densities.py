@@ -22,8 +22,11 @@ class CategoricalDensity(StochasticModule):
         self.output_dims = output_dims
         self.register_buffer('z', torch.ones([1, 1]))
 
-    def resample(self, *args, **kwargs):
-        self.z.data = torch.randn_like(self.z)
+    def resample(self, seed=None):
+        if seed is not None:
+            torch.manual_seed(seed)
+        u = torch.distributions.utils.clamp_probs(self.z)
+        self.z.data = -(-u.log()).log()
 
     def forward(self,
                 x,
@@ -32,6 +35,7 @@ class CategoricalDensity(StochasticModule):
                 output_noise=True,
                 resample_output_noise=True,
                 sampling_temperature=0.1,
+                seed=None,
                 **kwargs):
         D = int(self.output_dims)
         outs = x.split(D, -1)
@@ -41,13 +45,17 @@ class CategoricalDensity(StochasticModule):
             logits = outs[0][:D]
         if return_samples:
             if (x.shape != self.z.shape) or resample_output_noise:
+                if seed is not None:
+                    torch.manual_seed(seed)
                 u = torch.distributions.utils.clamp_probs(torch.rand_like(x))
                 self.z.data = -(-u.log()).log()
             z = self.z
             # sample from gumbel softmax
             y_soft = ((log_softmax(x, -1) + z) /
                       sampling_temperature).softmax(-1)
-            y_idx = y_soft.argmax(-1).view(-1, 1)
+            # sample from resulting categorical
+            y_idx = torch.distributions.Categorical(y_soft).sample().view(
+                -1, 1)
             y_hard = torch.zeros_like(y_soft).scatter(1, y_idx, 1)
             # get hard max (but backprop through softmax)
             y = ((y_hard - y_soft).detach() + y_soft)
@@ -56,7 +64,8 @@ class CategoricalDensity(StochasticModule):
             return logits
 
         def log_prob(self, z, logits):
-            pass
+            torch.distributions
+            return
 
 
 class DiagGaussianDensity(StochasticModule):
@@ -70,7 +79,9 @@ class DiagGaussianDensity(StochasticModule):
         self.output_dims = output_dims
         self.register_buffer('z', torch.ones([1, 1]))
 
-    def resample(self, *args, **kwargs):
+    def resample(self, seed=None):
+        if seed is not None:
+            torch.manual_seed(seed)
         self.z.data = torch.randn_like(self.z)
 
     def forward(self,
@@ -79,6 +90,7 @@ class DiagGaussianDensity(StochasticModule):
                 return_samples=False,
                 output_noise=True,
                 resample_output_noise=True,
+                seed=None,
                 **kwargs):
         D = int(self.output_dims)
         mean, log_std = x.split(D, -1)
@@ -98,6 +110,8 @@ class DiagGaussianDensity(StochasticModule):
             samples = mean
             if output_noise:
                 if (mean.shape != self.z.shape) or resample_output_noise:
+                    if seed is not None:
+                        torch.manual_seed(seed)
                     self.z.data = torch.randn_like(mean)
                 z = self.z
                 noise = z * log_std.clamp(-15, 15).exp()
@@ -147,7 +161,9 @@ class GaussianMixtureDensity(StochasticModule):
         self.register_buffer('z_normal', torch.ones([1, 1]))
         self.register_buffer('z_pi', torch.ones([1, 1]))
 
-    def resample(self, *args, **kwargs):
+    def resample(self, seed=None):
+        if seed is not None:
+            torch.manual_seed(seed)
         u = torch.distributions.utils.clamp_probs(torch.rand_like(self.z_pi))
         self.z_pi.data = -(-u.log()).log()
         self.z_normal.data = torch.randn_like(self.z_normal)
@@ -159,6 +175,7 @@ class GaussianMixtureDensity(StochasticModule):
                 output_noise=True,
                 resample_output_noise=True,
                 sampling_temperature=0.1,
+                seed=None,
                 **kwargs):
         D = int(self.output_dims)
         nD = D * self.n_components
@@ -189,6 +206,8 @@ class GaussianMixtureDensity(StochasticModule):
                     "Expected scaling_params as tuple or list with 2 elements")
 
         if return_samples:
+            if seed is not None:
+                torch.manual_seed(seed)
             if (logit_pi.shape != self.z_pi.shape) or resample_output_noise:
                 u = torch.distributions.utils.clamp_probs(
                     torch.rand_like(logit_pi))

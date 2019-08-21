@@ -3,6 +3,8 @@ import torch
 from torch import nn
 from torch.nn import Parameter
 
+jit_scripts = {}
+
 
 class StochasticModule(torch.nn.Module):
     def __init__(self, *args, **kwargs):
@@ -32,14 +34,16 @@ class BDropout(StochasticModule):
     def biases_regularizer(self, biases):
         return self.regularizer_scale * (biases**2).sum()
 
-    def resample(self):
-        self.update_noise(self.noise)
+    def resample(self, seed=None):
+        self.update_noise(self.noise, seed)
 
-    def update_noise(self, x):
+    def update_noise(self, x, seed=None):
+        if seed is not None:
+            torch.manual_seed(seed)
         self.p = 1 - self.rate
         self.noise.data = torch.bernoulli(self.p.expand(x.shape))
 
-    def forward(self, x, resample=True, mask_dims=2, **kwargs):
+    def forward(self, x, resample=True, mask_dims=2, seed=None, **kwargs):
         sample_shape = x.shape[-mask_dims:]
         if (sample_shape[1:] != self.noise.shape[1:]
                 or sample_shape[0] > self.noise.shape[0]):
@@ -47,8 +51,10 @@ class BDropout(StochasticModule):
             # this happens when the incoming batch size is bigger than
             # the noise batch size, or when the rest of the shape differs
             sample = x.view(-1, *sample_shape)[0]
-            self.update_noise(sample)
+            self.update_noise(sample, seed)
         elif resample:
+            if seed is not None:
+                torch.manual_seed(seed)
             return x * torch.bernoulli(self.p.expand(x.shape))
 
         # we never need the noise gradients
@@ -78,7 +84,9 @@ class CDropout(BDropout):
         reg -= -p * p.log() - (1 - p) * (1 - p).log()
         return reg
 
-    def update_noise(self, x):
+    def update_noise(self, x, seed=None):
+        if seed is not None:
+            torch.manual_seed(seed)
         self.noise.data = torch.rand_like(x)
 
     def update_concrete_noise(self, noise):
@@ -92,7 +100,7 @@ class CDropout(BDropout):
         concrete_p = self.logit_p + (noise_p / (1 - noise_m)).log()
         self.concrete_noise = (concrete_p / self.temp).sigmoid()
 
-    def forward(self, x, resample=False, mask_dims=2, **kwargs):
+    def forward(self, x, resample=False, mask_dims=2, seed=None, **kwargs):
         """Computes the concrete dropout.
 
         Args:
@@ -108,15 +116,18 @@ class CDropout(BDropout):
         noise = self.noise
         resampled = False
         if resample:
+            if seed is not None:
+                torch.manual_seed(seed)
             noise = torch.rand_like(x)
             resampled = True
-        elif (sample_shape[1:] != self.concrete_noise.shape[1:]
+        elif (sample_shape[1:] != self.noise.shape[1:]
+              or sample_shape[1:] != self.concrete_noise.shape[1:]
               or sample_shape[0] > self.concrete_noise.shape[0]):
             # resample if we can't re-use old numbers
             # this happens when the incoming batch size is bigger than
             # the noise batch size, or when the rest of the shape differs
             sample = x.view(-1, *sample_shape)[0]
-            self.update_noise(sample)
+            self.update_noise(sample, seed)
             noise = self.noise
             resampled = True
 
@@ -166,10 +177,12 @@ class BSequential(nn.modules.Sequential):
     def __init__(self, *args):
         super(BSequential, self).__init__(*args)
 
-    def resample(self):
+    def resample(self, seed=None):
+        i = 0
         for module in self._modules.values():
             if isinstance(module, BDropout):
-                module.resample()
+                module.resample(seed + i)
+                i += 1
 
     def forward(self, input, resample=True, repeat_mask=False, **kwargs):
         modules = list(self._modules.values())
