@@ -125,11 +125,13 @@ class Regressor(torch.nn.Module):
             self.X.data = X
         self.Y.data = Y
         self.mx.data = self.X.mean(0, keepdim=True)
-        self.Sx.data = self.X.std(0, keepdim=True)
-        self.iSx.data = self.X.std(0, keepdim=True).reciprocal()
+        self.Sx.data = 1.1 * self.X.std(0, keepdim=True)
+        self.Sx.data[self.Sx == 0] = 1.0
+        self.iSx.data = self.Sx.reciprocal()
         self.my.data = self.Y.mean(0, keepdim=True)
-        self.Sy.data = self.Y.std(0, keepdim=True)
-        self.iSy.data = self.Y.std(0, keepdim=True).reciprocal()
+        self.Sy.data = 1.1 * self.Y.std(0, keepdim=True)
+        self.Sy.data[self.Sy == 0] = 1.0
+        self.iSy.data = self.Sy.reciprocal()
         if N_ensemble > 1:
             self.masks.data = torch.bernoulli(
                 p * torch.ones(X.shape[0], N_ensemble))
