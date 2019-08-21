@@ -134,6 +134,8 @@ def rollout(states,
                 break
             raise e
     trajectory = [torch.stack(x) for x in zip(*trajectory)]
+    # append last state
+    trajectory[0] = torch.cat([trajectory[0], next_states[None]], 0)
     return trajectory
 
 
