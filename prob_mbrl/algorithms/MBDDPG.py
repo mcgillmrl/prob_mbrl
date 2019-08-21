@@ -51,8 +51,7 @@ class Critic(models.Regressor):
             1,
             critic_hidden,
             dropout_layers=[
-                models.modules.CDropout(0.1)
-                for i in range(len(critic_hidden))
+                models.modules.CDropout(0.1) for i in range(len(critic_hidden))
             ],
             nonlin=torch.nn.ReLU,
             weights_initializer=torch.nn.init.xavier_normal_,
@@ -70,24 +69,25 @@ class DynModel(models.DynamicsModel):
         self.learn_reward = reward_func is None
         dynE = 2 * (state_dim + 1) if self.learn_reward else 2 * state_dim
         if dyn_components > 1:
-            output_density = models.MixtureDensity(dynE / 2, dyn_components)
+            output_density = models.GaussianMixtureDensity(
+                dynE / 2, dyn_components)
             dynE = (dynE + 1) * dyn_components
             self.log_likelihood_loss = losses.gaussian_mixture_log_likelihood
         else:
             output_density = models.DiagGaussianDensity(dynE / 2)
             self.log_likelihood_loss = losses.gaussian_log_likelihood
 
-        dyn_model = models.mlp(
-            state_dim + action_dim,
-            dynE,
-            dyn_hidden,
-            dropout_layers=[
-                models.modules.CDropout(0.5, 0.1)
-                for i in range(len(dyn_hidden))
-            ],
-            nonlin=torch.nn.ReLU)
-        super(DynModel, self).__init__(
-            dyn_model, reward_func=reward_func, output_density=output_density)
+        dyn_model = models.mlp(state_dim + action_dim,
+                               dynE,
+                               dyn_hidden,
+                               dropout_layers=[
+                                   models.modules.CDropout(0.5, 0.1)
+                                   for i in range(len(dyn_hidden))
+                               ],
+                               nonlin=torch.nn.ReLU)
+        super(DynModel, self).__init__(dyn_model,
+                                       reward_func=reward_func,
+                                       output_density=output_density)
 
     def fit(self,
             experience_dataset,
@@ -101,12 +101,11 @@ class DynModel(models.DynamicsModel):
             torch.tensor(Y).to(self.X.device, self.X.dtype))
         if optimizer is None:
             optimizer = torch.optim.Adam(self.parameters())
-        utils.train_regressor(
-            self,
-            iterations,
-            batch_size,
-            optimizer=optimizer,
-            log_likelihood=self.log_likelihood_loss)
+        utils.train_regressor(self,
+                              iterations,
+                              batch_size,
+                              optimizer=optimizer,
+                              log_likelihood=self.log_likelihood_loss)
 
 
 class MBDDPG(nn.Module):
@@ -146,8 +145,8 @@ class MBDDPG(nn.Module):
         for it in pbar:
             # sample initial states for rollouts
             x0 = torch.tensor(
-                experience_dataset.sample_states(batch_size, timestep=0)).to(
-                    self.dyn.X.device).float()
+                experience_dataset.sample_states(
+                    batch_size, timestep=None)).to(self.dyn.X.device).float()
             x0 = x0 + 1e-1 * x0.std(0) * torch.randn_like(x0)
             x0 = x0.detach()
 

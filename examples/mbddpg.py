@@ -37,13 +37,12 @@ if __name__ == '__main__':
         reward_func = env.reward_func
 
     # initialize learning algorithm
-    agent = algorithms.MBDDPG.MBDDPG(
-        D,
-        U,
-        maxU,
-        reward_func=reward_func,
-        dyn_components=dyn_components,
-        dyn_hidden=dyn_hidden)
+    agent = algorithms.MBDDPG.MBDDPG(D,
+                                     U,
+                                     maxU,
+                                     reward_func=reward_func,
+                                     dyn_components=dyn_components,
+                                     dyn_hidden=dyn_hidden)
 
     # initalize experience dataset
     exp = utils.ExperienceDataset()
@@ -81,16 +80,17 @@ if __name__ == '__main__':
             continue
         ps_it = it - n_rnd + 1
 
-        def on_iteration(i, loss, states, actions, rewards, opt, policy,
-                         dynamics):
+        def on_iteration(i, loss, states, actions, rewards, discount):
             writer.add_scalar('mc_pilco/episode_%d/training loss' % ps_it,
                               loss, i)
             if i % 100 == 0:
                 states = states.transpose(0, 1).cpu().detach().numpy()
                 actions = actions.transpose(0, 1).cpu().detach().numpy()
                 rewards = rewards.transpose(0, 1).cpu().detach().numpy()
-                utils.plot_trajectories(
-                    states, actions, rewards, plot_samples=False)
+                utils.plot_trajectories(states,
+                                        actions,
+                                        rewards,
+                                        plot_samples=False)
 
         # train agent
         agent.fit(exp, H, 120, batch_size=N_particles)
