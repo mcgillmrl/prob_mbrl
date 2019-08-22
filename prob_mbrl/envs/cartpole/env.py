@@ -122,7 +122,7 @@ class Cartpole(GymEnv):
         # init parent class
         reward_func = reward_func if callable(reward_func) else CartpoleReward(
             pole_length=model.lp)
-        measurement_noise = 0 * torch.tensor([0.01] * 4)
+        measurement_noise = torch.tensor([0.01] * 4)
         super(Cartpole, self).__init__(model,
                                        reward_func,
                                        measurement_noise,
