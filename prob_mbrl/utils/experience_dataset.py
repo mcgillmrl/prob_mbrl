@@ -266,3 +266,58 @@ class ExperienceDataset(torch.nn.Module):
     def load(self, filename):
         state_dict = torch.load(filename)
         self.__dict__.update(state_dict)
+
+
+class SumTree:
+    def __init__(self, max_size):
+        self.max_size = max_size
+        self.data = [None] * max_size
+        self.sum_tree = np.zeros(2 * max_size - 1)
+        self.idx = 0
+        self.max_p = 1.0
+        self.size = 0
+
+    def append(self, data, priority):
+        self.data[self.idx] = data
+        self.update(self.idx + self.max_size - 1, priority)
+        self.idx = (self.idx + 1) % self.max_size
+        self.size = min(self.size + 1, self.max_size)
+
+    def update(self, idx, priority):
+        self.sum_tree[idx] = priority
+        self._update(idx)
+        self.max_p = max(self.max_p, priority)
+
+    def _update(self, idx):
+        parent = (idx - 1) // 2
+        pleft = 2 * parent + 1
+        pright = pleft + 1
+        sum_ = self.sum_tree[pleft] + self.sum_tree[pright]
+        self.sum_tree[parent] = sum_
+        if parent != 0:
+            self._update(parent)
+
+    def _retrieve(self, idx, priority):
+        left = 2 * idx + 1
+        right = left + 1
+        if left >= len(self.sum_tree):
+            return idx
+        elif priority <= self.sum_tree[left]:
+            return self._retrieve(left, priority)
+        else:
+            return self._retrieve(right, priority - self.sum_tree[left])
+
+    def get(self, priority):
+        idx = self._retrieve(0, priority)
+        return [idx, self.sum_tree[idx], self.data[idx - self.max_size + 1]]
+
+    def sample(self, batchsize, beta=1.0):
+        sum_p = self.sum_tree[0]
+        segment_length = sum_p / batchsize
+        priorities = (np.arange(batchsize) +
+                      np.random.rand(batchsize)) * segment_length
+        idxs, priorities, samples = zip(*[self.get(p) for p in priorities])
+        probs = priorities / sum_p
+        weights = (self.size * probs)**-beta
+        weights = weights / weights.max()
+        return samples, idxs, weights
