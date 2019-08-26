@@ -216,7 +216,9 @@ class GaussianMixtureDensity(StochasticModule):
             # sample from gumbel softmax
             k_soft = ((log_softmax(logit_pi, -1) + z1) /
                       sampling_temperature).softmax(-1)
-            k_idx = k_soft.argmax(-1).view(-1, 1)
+            #k_idx = k_soft.argmax(-1).view(-1, 1)
+            k_idx = torch.distributions.Categorical(k_soft).sample().view(
+                -1, 1)
             k_hard = torch.zeros_like(k_soft).scatter(1, k_idx, 1)
             # get hard max (but backprop through softmax)
             k = ((k_hard - k_soft).detach() + k_soft)[:, None, :]

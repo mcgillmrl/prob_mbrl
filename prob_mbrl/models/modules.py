@@ -79,6 +79,7 @@ class CDropout(BDropout):
                              torch.bernoulli(torch.tensor([1.0 - self.rate])))
 
     def weights_regularizer(self, weights):
+        #logit_p = torch.nn.functional.softplus(self.logit_p, 50)
         p = self.logit_p.sigmoid()
         reg = self.regularizer_scale * (p * (weights**2)).sum()
         reg -= -p * p.log() - (1 - p) * (1 - p).log()
@@ -97,8 +98,13 @@ class CDropout(BDropout):
         """
         noise_p = noise + 1e-9
         noise_m = noise - 1e-9
+        #logit_p = torch.nn.functional.softplus(self.logit_p, 50)
         concrete_p = self.logit_p + (noise_p / (1 - noise_m)).log()
-        self.concrete_noise = (concrete_p / self.temp).sigmoid()
+        probs = (concrete_p / self.temp).sigmoid()
+        noise = torch.bernoulli(probs)
+        # forward pass uses bernoulli sampled noise, but backwards
+        # through concrete distribution
+        self.concrete_noise = (noise - probs).detach() + probs
 
     def forward(self, x, resample=False, mask_dims=2, seed=None, **kwargs):
         """Computes the concrete dropout.
@@ -142,6 +148,7 @@ class CDropout(BDropout):
         return x * concrete_noise[..., :x.shape[-mask_dims], :]
 
     def extra_repr(self):
+        #logit_p = torch.nn.functional.softplus(self.logit_p, 50)
         return 'rate={}, temperature={}, regularizer_scale={}'.format(
             1 - self.logit_p.sigmoid(), self.temp, self.regularizer_scale)
 
@@ -181,7 +188,8 @@ class BSequential(nn.modules.Sequential):
         i = 0
         for module in self._modules.values():
             if isinstance(module, BDropout):
-                module.resample(seed + i)
+                if seed is not None:
+                    module.resample(seed + i)
                 i += 1
 
     def forward(self, input, resample=True, repeat_mask=False, **kwargs):
