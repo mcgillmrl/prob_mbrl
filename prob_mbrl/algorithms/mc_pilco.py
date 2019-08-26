@@ -6,6 +6,9 @@ from collections import defaultdict
 from prob_mbrl import utils
 
 policy_update_counter = defaultdict(lambda: 0)
+x0_tree = utils.SumTree(2**20)
+episode_counter = 0
+state_counts = defaultdict(lambda: 0)
 
 
 def mc_pilco(init_states,
@@ -29,8 +32,9 @@ def mc_pilco(init_states,
              step_idx_to_sample=None,
              init_state_noise=0.0,
              resampling_period=500,
+             prioritized_replay=False,
              debug=False):
-    global policy_update_counter
+    global policy_update_counter, x0_tree, episode_counter, state_counts
     dynamics.eval()
     policy.train()
 
@@ -69,6 +73,8 @@ def mc_pilco(init_states,
     dynamics.eval()
     policy.train()
     n_opt_steps = policy_update_counter[policy]
+    tree_idxs = None
+    x0_weights = torch.ones_like(x0)
 
     for i in pbar:
         # zero gradients
@@ -81,7 +87,8 @@ def mc_pilco(init_states,
         # rollout policy
         H = steps
         try:
-            trajectories = utils.rollout(x0,
+            x0_ = x0 + init_state_noise * torch.randn_like(x0)
+            trajectories = utils.rollout(x0_,
                                          dynamics,
                                          policy,
                                          H,
@@ -110,10 +117,12 @@ def mc_pilco(init_states,
         discounted_rewards = torch.stack(
             [r * discount(i) for i, r in enumerate(rewards)])
         if value_func is not None:
-            Vend = value_func(states[-1:], resample=False)
+            Vend = value_func(states[-1],
+                              resample=False,
+                              return_samples=True,
+                              output_noise=False)
             discounted_rewards = torch.cat(
                 [discounted_rewards, discount(H) * Vend], 0)
-
         if maximize:
             returns = -discounted_rewards.sum(0)
         else:
@@ -135,6 +144,19 @@ def mc_pilco(init_states,
         if reg_weight > 0:
             loss = loss + reg_weight * policy.regularization_loss()
 
+        if prioritized_replay and tree_idxs is not None:
+            # apply importance sampling weights
+            loss = loss * x0_weights
+
+            # prepare hook to update priorities
+            def update_priorities(x0_grad):
+                global x0_tree, x0_idxs
+                norms = x0_grad.norm(dim=-1).detach().cpu().numpy()
+                for idx, norm in zip(tree_idxs, norms):
+                    x0_tree.update(idx, norm + 1e-8)
+
+            x0.register_hook(update_priorities)
+
         # compute gradients
         loss.backward()
 
@@ -145,7 +167,7 @@ def mc_pilco(init_states,
         # update parameters
         opt.step()
         n_opt_steps += 1
-        pbar.set_description((msg % (rewards.sum(0).mean())) +
+        pbar.set_description((msg % (torch.stack(rewards).sum(0).mean())) +
                              ' [{0}]'.format(len(rewards)))
 
         if callable(on_iteration):
@@ -154,19 +176,34 @@ def mc_pilco(init_states,
         # sample initial states
         if exp is not None:
             N_particles = init_states.shape[0]
-            x0 = exp.sample_states(N_particles,
-                                   timestep=step_idx_to_sample).to(
-                                       dynamics.X.device).float()
-            x0 += init_state_noise * torch.randn_like(x0)
-            init_states = x0
+            if prioritized_replay:
+                # first check if exp is bigger than x0_tree
+                if exp.n_samples() > x0_tree.size:
+                    # add states to sum tree
+                    for idx in range(episode_counter, exp.n_episodes()):
+                        for x in torch.tensor(exp.states[idx]):
+                            x0_tree.append(x, x0_tree.max_p)
+                    episode_counter = exp.n_episodes()
+                x0, x0_idxs, x0_weights = x0_tree.sample(N_particles)
+                x0 = torch.stack(x0).to(dynamics.X.device).float()
+                x0_weights = torch.tensor(np.stack(x0_weights)).to(
+                    x0.device).float()
+                x0.requires_grad_(True)
+
+                for x0i in x0.detach().cpu().numpy().tolist():
+                    state_counts[tuple(x0i)] += 1
+            else:
+                x0 = exp.sample_states(N_particles,
+                                       timestep=step_idx_to_sample).to(
+                                           dynamics.X.device).float()
+                init_states = x0
+
         else:
-            x0 = init_states
-        x0 = x0.detach()
+            x0 = init_states.detach()
 
     policy.eval()
     dynamics.eval()
     policy_update_counter[policy] = n_opt_steps
-    print(policy_update_counter[policy])
 
 
 class MCPILCOAgent(torch.nn.Module):
@@ -271,8 +308,8 @@ class MCPILCOAgent(torch.nn.Module):
                                              self.dyn,
                                              self.pol,
                                              steps,
-                                             resample_state_noise=not pegasus,
-                                             resample_action_noise=not pegasus,
+                                             resample_state_noise=True,
+                                             resample_action_noise=True,
                                              mm_states=mm_states,
                                              mm_rewards=mm_rewards,
                                              z_mm=z_mm if pegasus else None,
