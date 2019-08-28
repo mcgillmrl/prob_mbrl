@@ -3,12 +3,11 @@ import torch
 import warnings
 
 from torch.nn.functional import log_softmax
-from prob_mbrl.models.modules import StochasticModule
-from torch.nn.functional import log_softmax
 try:
     from torch.distributions.utils import log_sum_exp as logsumexp
 except ImportError:
     logsumexp = torch.logsumexp
+from prob_mbrl.models.modules import StochasticModule
 
 PI = {'default': torch.tensor(np.pi)}
 TWO_PI = {'default': 2 * PI['default']}
@@ -74,10 +73,11 @@ class DiagGaussianDensity(StochasticModule):
         of a Gaussian distribution, with diagonal covariance.
     '''
 
-    def __init__(self, output_dims):
+    def __init__(self, output_dims, max_noise_std=1):
         super(DiagGaussianDensity, self).__init__()
         self.output_dims = output_dims
         self.register_buffer('z', torch.ones([1, 1]))
+        self.register_buffer('max_log_std', torch.tensor(max_noise_std).log())
 
     def resample(self, seed=None):
         if seed is not None:
@@ -94,6 +94,8 @@ class DiagGaussianDensity(StochasticModule):
                 **kwargs):
         D = int(self.output_dims)
         mean, log_std = x.split(D, -1)
+
+        log_std = -torch.nn.functional.softplus(-log_std) + self.max_log_std
 
         # scale and center outputs
         if scaling_params is not None and len(scaling_params) > 0:
@@ -188,6 +190,8 @@ class GaussianMixtureDensity(StochasticModule):
             mean, log_std, extras = outs
             logit_pi, log_temperature = extras.split(self.n_components, -1)
 
+        log_std = -torch.nn.functional.softplus(-log_std) + self.max_log_std
+
         # the output shape is [batch_size, output_dimensions, n_components]
         mean = mean.view(-1, D, self.n_components)
         log_std = log_std.view(-1, D, self.n_components)
@@ -216,7 +220,7 @@ class GaussianMixtureDensity(StochasticModule):
             # sample from gumbel softmax
             k_soft = ((log_softmax(logit_pi, -1) + z1) /
                       sampling_temperature).softmax(-1)
-            #k_idx = k_soft.argmax(-1).view(-1, 1)
+            # k_idx = k_soft.argmax(-1).view(-1, 1)
             k_idx = torch.distributions.Categorical(k_soft).sample().view(
                 -1, 1)
             k_hard = torch.zeros_like(k_soft).scatter(1, k_idx, 1)
@@ -256,5 +260,6 @@ class GaussianMixtureDensity(StochasticModule):
         return logsumexp(log_probs, dim=-1, keepdim=True)
 
     def __repr__(self):
-        return self.__class__.__name__ + '(output_dims=%d, n_components=%d)' % (
-            self.output_dims, self.n_components)
+        desc = '(output_dims=%d, n_components=%d)' % (self.output_dims,
+                                                      self.n_components)
+        return self.__class__.__name__ + desc
