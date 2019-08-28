@@ -8,7 +8,6 @@ from prob_mbrl import utils
 policy_update_counter = defaultdict(lambda: 0)
 x0_tree = utils.SumTree(2**20)
 episode_counter = 0
-state_counts = defaultdict(lambda: 0)
 
 
 def mc_pilco(init_states,
@@ -33,8 +32,10 @@ def mc_pilco(init_states,
              init_state_noise=0.0,
              resampling_period=500,
              prioritized_replay=False,
+             priority_alpha=0.6,
+             priority_eps=1e-8,
              debug=False):
-    global policy_update_counter, x0_tree, episode_counter, state_counts
+    global policy_update_counter, x0_tree, episode_counter
     dynamics.eval()
     policy.train()
 
@@ -73,8 +74,9 @@ def mc_pilco(init_states,
     dynamics.eval()
     policy.train()
     n_opt_steps = policy_update_counter[policy]
-    tree_idxs = None
+    x0_idxs = None
     x0_weights = torch.ones_like(x0)
+    priority_beta = 0.1
 
     for i in pbar:
         # zero gradients
@@ -132,30 +134,40 @@ def mc_pilco(init_states,
             if cvar_eps > 0:
                 # worst case optimizer
                 q = np.quantile(returns.detach(), cvar_eps)
-                loss = returns[returns.detach() < q].mean()
+                returns = returns[returns.detach() < q]
             elif cvar_eps < 0:
                 # best case optimizer
                 q = np.quantile(returns.detach(), -cvar_eps)
-                loss = returns[returns.detach() > q].mean()
-        else:
-            loss = returns.mean()
+                returns = returns[returns.detach() > q]
+
+        if prioritized_replay and x0_idxs is not None:
+            # apply importance sampling weights
+            returns = returns * x0_weights
+
+            # prepare hook to update priorities
+            ps = []
+
+            def accumulate_priorities(grad):
+                ps.append(grad.norm(dim=-1).detach().cpu().numpy())
+
+            def update_priorities(x0_grad):
+                global x0_tree
+                ps.append(x0_grad.norm(dim=-1).detach().cpu().numpy())
+                mean_ps = sum(ps) / len(ps)
+                priorities = (mean_ps + priority_eps)**priority_alpha
+                [x0_tree.update(idx, p) for idx, p in zip(x0_idxs, priorities)]
+
+            [
+                actions[i].register_hook(accumulate_priorities)
+                for i in range(1, len(actions))
+            ]
+            actions[0].register_hook(update_priorities)
+
+        loss = returns.mean()
 
         # add regularization penalty
         if reg_weight > 0:
             loss = loss + reg_weight * policy.regularization_loss()
-
-        if prioritized_replay and tree_idxs is not None:
-            # apply importance sampling weights
-            loss = loss * x0_weights
-
-            # prepare hook to update priorities
-            def update_priorities(x0_grad):
-                global x0_tree, x0_idxs
-                norms = x0_grad.norm(dim=-1).detach().cpu().numpy()
-                for idx, norm in zip(tree_idxs, norms):
-                    x0_tree.update(idx, norm + 1e-8)
-
-            x0.register_hook(update_priorities)
 
         # compute gradients
         loss.backward()
@@ -184,14 +196,14 @@ def mc_pilco(init_states,
                         for x in torch.tensor(exp.states[idx]):
                             x0_tree.append(x, x0_tree.max_p)
                     episode_counter = exp.n_episodes()
-                x0, x0_idxs, x0_weights = x0_tree.sample(N_particles)
+                x0, x0_idxs, x0_weights = x0_tree.sample(N_particles,
+                                                         beta=priority_beta)
+                priority_beta = max(1.0, priority_beta + 1 / opt_iters)
                 x0 = torch.stack(x0).to(dynamics.X.device).float()
                 x0_weights = torch.tensor(np.stack(x0_weights)).to(
                     x0.device).float()
                 x0.requires_grad_(True)
 
-                for x0i in x0.detach().cpu().numpy().tolist():
-                    state_counts[tuple(x0i)] += 1
             else:
                 x0 = exp.sample_states(N_particles,
                                        timestep=step_idx_to_sample).to(
