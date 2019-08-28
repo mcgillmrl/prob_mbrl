@@ -2,9 +2,9 @@ import numpy as np
 import sys
 import torch
 
+from tqdm import tqdm
 from prob_mbrl.losses import gaussian_log_likelihood
 from prob_mbrl import utils
-from tqdm import tqdm
 torch.set_printoptions(linewidth=200)
 
 priority_tree = {}
@@ -31,13 +31,15 @@ def iterate_priority_tree(inputs, targets, batchsize, tree, warmup_iters=100):
 
     for i in range(warmup_iters):
         x, y, idxs = next(iter_)
-        idxs = [idx + tree.max_size - 1 for idx in idxs]
+        tree.counts[idxs] += 1
+        idxs = idxs + tree.max_size - 1
         yield x, y, idxs, torch.ones(x.shape[0], 1)
 
     while True:
         data_idxs, idxs, weights = tree.sample(batchsize, beta=beta)
         beta = min(1.0, beta + 1e-3)
-        x, y = inputs[np.array(data_idxs)], targets[np.array(data_idxs)]
+        data_idxs = np.array(data_idxs)
+        x, y = inputs[data_idxs], targets[data_idxs]
         yield x, y, idxs, weights
 
 
@@ -89,13 +91,15 @@ def train_regressor(model,
 
     if prioritized_sampling:
         # whether to sample similar to prioritized experience replay
-        if model not in priority_tree or N > priority_tree[model].size:
-            old_tree = priority_tree.get(model, None)
-            priority_tree[model] = utils.SumTree(2 * N)
+        tree = priority_tree.get(model, None)
+        if tree is None or N > tree.size:
+            old_tree = tree
+            tree = utils.SumTree(2 * N)
             if old_tree is not None:
-                priority_tree[model].max_p = old_tree.max_p
-        pbar = pbar_class(enumerate(
-            iterate_priority_tree(X, Y, M, priority_tree[model])),
+                tree.max_p = old_tree.max_p
+                tree.counts[:len(old_tree.counts)] = old_tree.counts
+            priority_tree[model] = tree
+        pbar = pbar_class(enumerate(iterate_priority_tree(X, Y, M, tree)),
                           total=iters)
     else:
         pbar = pbar_class(enumerate(iterate_minibatches(X, Y, M)), total=iters)
@@ -110,7 +114,9 @@ def train_regressor(model,
             idxs, weights = batch[2:]
             weights = torch.tensor(np.stack(weights)).to(X.device).float()
             tree = priority_tree[model]
-            priorities = ((-log_probs.clamp(-2, 2)).exp().detach().numpy() +
+            # priorities = ((-log_probs.clamp(-2, 2)).exp().detach().numpy() +
+            #              priority_eps)**priority_alpha
+            priorities = (1.0 / tree.counts[idxs - tree.max_size + 1] +
                           priority_eps)**priority_alpha
             [tree.update(idx, p) for idx, p in zip(idxs, priorities)]
             log_probs = log_probs * weights
@@ -150,3 +156,4 @@ def train_regressor(model,
             break
 
     model.eval()
+    print(model)
