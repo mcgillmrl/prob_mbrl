@@ -121,7 +121,7 @@ class Pendulum(GymEnv):
                                             high=high,
                                             dtype=np.float32)
 
-    def reset(self, init_state=np.array([0.0, 0.0]), init_state_std=1e-2):
+    def reset(self, init_state=np.array([0.0, 0.0]), init_state_std=1e-1):
         return super(Pendulum, self).reset(init_state, init_state_std)
 
     def render(self, mode="human"):
