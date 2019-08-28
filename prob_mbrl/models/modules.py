@@ -21,18 +21,17 @@ class BDropout(StochasticModule):
         super(BDropout, self).__init__(**kwargs)
         self.name = name
         self.register_buffer('regularizer_scale',
-                             torch.tensor(0.5 * regularizer_scale**2))
+                             torch.tensor(0.5 * regularizer_scale))
         self.register_buffer('rate', torch.tensor(rate))
         self.p = 1 - self.rate
-        self.register_buffer('noise',
-                             torch.bernoulli(torch.tensor([1.0 - self.rate])))
+        self.register_buffer('noise', torch.bernoulli(self.p))
 
     def weights_regularizer(self, weights):
         self.p = 1 - self.rate
-        return self.regularizer_scale * (self.p * (weights**2)).sum()
+        return self.regularizer_scale * ((weights**2).sum(0) / self.p).sum()
 
     def biases_regularizer(self, biases):
-        return self.regularizer_scale * (biases**2).sum()
+        return self.regularizer_scale * ((biases**2).sum(0) / self.p**2).sum()
 
     def resample(self, seed=None):
         self.update_noise(self.noise, seed)
@@ -55,10 +54,10 @@ class BDropout(StochasticModule):
         elif resample:
             if seed is not None:
                 torch.manual_seed(seed)
-            return x * torch.bernoulli(self.p.expand(x.shape))
+            return (x * torch.bernoulli(self.p.expand(x.shape))) / self.p
 
         # we never need the noise gradients
-        return x * self.noise[..., :x.shape[-mask_dims], :].detach()
+        return (x * self.noise[..., :x.shape[-mask_dims], :].detach()) / self.p
 
     def extra_repr(self):
         return 'rate={}, regularizer_scale={}'.format(self.rate,
@@ -70,20 +69,23 @@ class CDropout(BDropout):
                  rate=0.5,
                  name=None,
                  regularizer_scale=1.0,
+                 dropout_regularizer=1.0,
                  temperature=0.1,
                  **kwargs):
         super(CDropout, self).__init__(rate, name, regularizer_scale, **kwargs)
         self.register_buffer('temp', torch.tensor(temperature))
-        self.logit_p = Parameter(-torch.log(1.0 / (1 - self.rate) - 1.0))
-        self.register_buffer('concrete_noise',
-                             torch.bernoulli(torch.tensor([1.0 - self.rate])))
+        self.register_buffer('dropout_regularizer',
+                             torch.tensor(dropout_regularizer))
+        self.logit_p = Parameter(-torch.log(1.0 / self.p - 1.0))
+        self.register_buffer('concrete_noise', torch.bernoulli(self.p))
 
     def weights_regularizer(self, weights):
-        #logit_p = torch.nn.functional.softplus(self.logit_p, 50)
-        p = self.logit_p.sigmoid()
-        reg = self.regularizer_scale * (p * (weights**2)).sum()
-        reg -= -p * p.log() - (1 - p) * (1 - p).log()
-        return reg
+        # logit_p = torch.nn.functional.softplus(self.logit_p, 50)
+        p = self.p
+        reg = self.regularizer_scale * ((weights**2).sum(0) / p)
+        reg += self.dropout_regularizer * (p * p.log() + (1 - p) *
+                                           (1 - p).log())
+        return reg.sum()
 
     def update_noise(self, x, seed=None):
         if seed is not None:
@@ -96,15 +98,16 @@ class CDropout(BDropout):
         Args:
             noise (Tensor): Input.
         """
-        noise_p = noise + 1e-9
-        noise_m = noise - 1e-9
+        noise_p = noise + 1e-7
+        noise_m = noise - 1e-7
         #logit_p = torch.nn.functional.softplus(self.logit_p, 50)
         concrete_p = self.logit_p + (noise_p / (1 - noise_m)).log()
-        probs = (concrete_p / self.temp).sigmoid()
+        probs = (concrete_p / self.temp + 1e-9).sigmoid()
         noise = torch.bernoulli(probs)
         # forward pass uses bernoulli sampled noise, but backwards
         # through concrete distribution
         self.concrete_noise = (noise - probs).detach() + probs
+        self.p = self.logit_p.sigmoid()
 
     def forward(self, x, resample=False, mask_dims=2, seed=None, **kwargs):
         """Computes the concrete dropout.
@@ -140,12 +143,15 @@ class CDropout(BDropout):
         if self.training:
             self.update_concrete_noise(noise)
             concrete_noise = self.concrete_noise
+            p = self.p
         else:
             if resampled:
                 self.update_concrete_noise(noise)
             # We never need these gradients in evaluation mode.
             concrete_noise = self.concrete_noise.detach()
-        return x * concrete_noise[..., :x.shape[-mask_dims], :]
+            p = self.p.detach()
+
+        return (x * concrete_noise[..., :x.shape[-mask_dims], :]) / p
 
     def extra_repr(self):
         #logit_p = torch.nn.functional.softplus(self.logit_p, 50)
