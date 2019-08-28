@@ -273,12 +273,14 @@ class SumTree:
         self.max_size = max_size
         self.data = [None] * max_size
         self.sum_tree = np.zeros(2 * max_size - 1)
+        self.counts = np.zeros(max_size)
         self.idx = 0
         self.max_p = 1.0
         self.size = 0
 
     def append(self, data, priority):
         self.data[self.idx] = data
+        self.counts[self.idx] = 0
         self.update(self.idx + self.max_size - 1, priority)
         self.idx = (self.idx + 1) % self.max_size
         self.size = min(self.size + 1, self.max_size)
@@ -317,7 +319,9 @@ class SumTree:
         priorities = (np.arange(batchsize) +
                       np.random.rand(batchsize)) * segment_length
         idxs, priorities, samples = zip(*[self.get(p) for p in priorities])
-        probs = priorities / sum_p
+        idxs = np.array(idxs)
+        self.counts[idxs - self.max_size + 1] += 1
+        probs = np.array(priorities) / sum_p
         weights = (self.size * probs)**-beta
         weights = weights / weights.max()
         return samples, idxs, weights
