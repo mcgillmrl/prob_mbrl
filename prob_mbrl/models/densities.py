@@ -73,7 +73,7 @@ class DiagGaussianDensity(StochasticModule):
         of a Gaussian distribution, with diagonal covariance.
     '''
 
-    def __init__(self, output_dims, max_noise_std=1):
+    def __init__(self, output_dims, max_noise_std=1.0):
         super(DiagGaussianDensity, self).__init__()
         self.output_dims = output_dims
         self.register_buffer('z', torch.ones([1, 1]))
@@ -156,12 +156,13 @@ class GaussianMixtureDensity(StochasticModule):
      covariance.
     '''
 
-    def __init__(self, output_dims, n_components, **kwargs):
+    def __init__(self, output_dims, n_components, max_noise_std=1.0, **kwargs):
         super(GaussianMixtureDensity, self).__init__(**kwargs)
         self.n_components = n_components
         self.output_dims = output_dims
         self.register_buffer('z_normal', torch.ones([1, 1]))
         self.register_buffer('z_pi', torch.ones([1, 1]))
+        self.register_buffer('max_log_std', torch.tensor(max_noise_std).log())
 
     def resample(self, seed=None):
         if seed is not None:
