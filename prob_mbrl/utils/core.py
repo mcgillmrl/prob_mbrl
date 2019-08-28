@@ -108,8 +108,8 @@ def plot_rollout(x0, forward, pol, steps):
                     resample_model=False,
                     resample_policy=False,
                     resample_particles=False)
-    states, actions, rewards = (x.transpose(0, 1).cpu().detach().numpy()
-                                for x in trajs[:3])
+    states, actions, rewards = (torch.stack(x).transpose(
+        0, 1).detach().cpu().numpy() for x in trajs[:3])
     plot_trajectories(states, actions, rewards)
 
 

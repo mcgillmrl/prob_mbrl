@@ -72,7 +72,7 @@ def rollout(states,
     state_noise = torch.zeros_like(states)
     jitter1, jitter2 = None, None
 
-    #mm_resample = (mm_resample_infer_ns_
+    # mm_resample = (mm_resample_infer_ns_
     #               if infer_noise_variables else mm_resample_)
     mm_resample = get_mm_resample_script(states, torch.randn_like(states),
                                          torch.eye(states.shape[-1]),
@@ -94,7 +94,8 @@ def rollout(states,
                              return_samples=True,
                              resample_output_noise=resample_action_noise)
 
-            # propagate state particles (and obtain rewards) TODO: make this an env.step call
+            # propagate state particles (and obtain rewards)
+            # TODO: make this an env.step call
             outs = dynamics((states, actions),
                             output_noise=True,
                             return_samples=True,
@@ -133,9 +134,11 @@ def rollout(states,
             if len(trajectory) > 5:
                 break
             raise e
-    trajectory = [torch.stack(x) for x in zip(*trajectory)]
+    trajectory = [list(x) for x in zip(*trajectory)]
+
     # append last state
-    trajectory[0] = torch.cat([trajectory[0], next_states[None]], 0)
+    trajectory[0].append(next_states)
+
     return trajectory
 
 
