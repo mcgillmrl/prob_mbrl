@@ -34,7 +34,8 @@ def mc_pilco(init_states,
              prioritized_replay=False,
              priority_alpha=0.6,
              priority_eps=1e-8,
-             debug=False):
+             debug=False,
+             rollout_kwargs={}):
     global policy_update_counter, x0_tree, episode_counter
     dynamics.eval()
     policy.train()
@@ -99,7 +100,8 @@ def mc_pilco(init_states,
                                          mm_states=mm_states,
                                          mm_rewards=mm_rewards,
                                          z_mm=z_mm if pegasus else None,
-                                         z_rr=z_rr if pegasus else None)
+                                         z_rr=z_rr if pegasus else None,
+                                         **rollout_kwargs)
             # dims are timesteps x batch size x state/action/reward dims
             states, actions, rewards = trajectories
             if callable(on_rollout):
@@ -124,7 +126,8 @@ def mc_pilco(init_states,
                               return_samples=True,
                               output_noise=False)
             discounted_rewards = torch.cat(
-                [discounted_rewards, discount(H) * Vend], 0)
+                [discounted_rewards,
+                 discount(H) * Vend.unsqueeze(0)], 0)
         if maximize:
             returns = -discounted_rewards.sum(0)
         else:

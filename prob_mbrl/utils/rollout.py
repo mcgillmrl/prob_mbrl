@@ -63,6 +63,7 @@ def rollout(states,
             z_rr=None,
             breaking_condition=None,
             on_step=None,
+            on_pol_eval=None,
             **kwargs):
     '''
         Obtains trajectory distribution (s_0, a_0, r_0, s_1, a_1, r_1,...)
@@ -93,7 +94,8 @@ def rollout(states,
                              output_noise=True,
                              return_samples=True,
                              resample_output_noise=resample_action_noise)
-
+            if callable(on_pol_eval):
+                states, actions = on_pol_eval(i, states, actions)
             # propagate state particles (and obtain rewards)
             # TODO: make this an env.step call
             outs = dynamics((states, actions),
