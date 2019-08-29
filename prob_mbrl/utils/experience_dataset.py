@@ -93,7 +93,7 @@ class ExperienceDataset(torch.nn.Module):
         ''' Empties the internal data structures'''
         fmt = 'Resetting experience dataset'
         fmt += '(WARNING: data from %s will be overwritten)'
-        #utils.print_with_stamp(fmt % (self.filename), self.name)
+        # utils.print_with_stamp(fmt % (self.filename), self.name)
         self.time_stamps = []
         self.states = []
         self.actions = []
@@ -110,7 +110,7 @@ class ExperienceDataset(torch.nn.Module):
         if episode <= self.curr_episode and episode > 0:
             fmt = 'Resetting experience dataset to episode %d'
             fmt += ' (WARNING: data from %s will be overwritten)'
-            #utils.print_with_stamp(fmt % (episode, self.filename), self.name)
+            # utils.print_with_stamp(fmt % (episode, self.filename), self.name)
             self.curr_episode = episode
             self.time_stamps = self.time_stamps[episode:]
             self.states = self.states[episode:]
@@ -291,23 +291,26 @@ class SumTree:
         self.max_p = max(self.max_p, priority)
 
     def _update(self, idx):
-        parent = (idx - 1) // 2
-        pleft = 2 * parent + 1
-        pright = pleft + 1
-        sum_ = self.sum_tree[pleft] + self.sum_tree[pright]
-        self.sum_tree[parent] = sum_
-        if parent != 0:
-            self._update(parent)
+        while idx != 0:
+            parent = (idx - 1) // 2
+            pleft = 2 * parent + 1
+            pright = pleft + 1
+            self.sum_tree[
+                parent] = self.sum_tree[pleft] + self.sum_tree[pright]
+            idx = parent
 
     def _retrieve(self, idx, priority):
+        N_nodes = len(self.sum_tree)
         left = 2 * idx + 1
-        right = left + 1
-        if left >= len(self.sum_tree):
-            return idx
-        elif priority <= self.sum_tree[left]:
-            return self._retrieve(left, priority)
-        else:
-            return self._retrieve(right, priority - self.sum_tree[left])
+        while left < N_nodes:
+            left_val = self.sum_tree[left]
+            if priority <= left_val:
+                idx = left
+            else:
+                idx = left + 1
+                priority -= left_val
+            left = 2 * idx + 1
+        return idx
 
     def get(self, priority):
         idx = self._retrieve(0, priority)
