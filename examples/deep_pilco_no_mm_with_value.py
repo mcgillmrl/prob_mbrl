@@ -1,81 +1,185 @@
 import atexit
+import copy
 import datetime
 import numpy as np
 import os
 import torch
 import tensorboardX
 
-from prob_mbrl import utils, models, algorithms, envs, thirdparty
+from prob_mbrl import utils, models, algorithms, envs
 from functools import partial
 torch.set_flush_denormal(True)
 torch.set_num_threads(2)
-torch.manual_seed(1)
-np.random.seed(1)
-torch.set_printoptions(linewidth=200)
 
 
-def update_value_function(V, opt, states, actions, rewards, discount):
+def perturb_initial_action(i, states, actions):
+    if i == 0:
+        actions = actions + 1e-1 * (torch.randint(0,
+                                                  2,
+                                                  actions.shape[0:],
+                                                  device=actions.device,
+                                                  dtype=actions.dtype) *
+                                    actions.std(0)).detach()
+    return states, actions
+
+
+def threshold_linear(x, y0, yend, x0, xend):
+    y = (x - x0) * (yend - y0) / (xend - x0) + y0
+    return np.maximum(y0, np.minimum(yend, y)).astype(np.int32)
+
+
+def update_value_function(V,
+                          opt,
+                          H,
+                          i,
+                          states,
+                          actions,
+                          rewards,
+                          discount,
+                          V_target=None,
+                          polyak_averaging=0.005):
+    V_tgt = V if V_target is None else V_target
     V.zero_grad()
-    H = states.shape[0]
-    N = states.shape[1]
+    N = rewards[0].shape[0]
     discounted_rewards = torch.stack(
-        [r * discount(j) for j, r in enumerate(rewards)])
+        [r * discount(j) for j, r in enumerate(rewards[:H])])
     returns = discounted_rewards.sum(0).detach()
-    V.set_dataset(states[0], returns)
+
     # we evaluate the value function with resample=True, but with the same seed
     # this ensures that we don't overwrite the noise masks used when
-    # resample = False, but that we get the same masks for V0 and Vend
+    # resample = False, but that we get the same masks for V0 and VH
     seed = torch.randint(2**32, [1])
-    V0 = V(states[0].detach(), resample=True, seed=seed)
-    Vend = V(states[-1], resample=True, seed=seed)
+    if V.output_density is None:
+        V0 = V(states[0].detach(), resample=True, seed=seed)
+        VH = V_tgt(states[H].detach(), resample=True, seed=seed)
+        targets = returns + discount(H) * VH.detach()
+        loss = torch.nn.functional.mse_loss(V0, targets)
+    else:
+        # the output of the network are the parameters of a probability density
+        pV0 = V(states[0].detach(),
+                resample=True,
+                seed=seed,
+                return_samples=False)
+        VH = V_tgt(states[H].detach(),
+                   resample=True,
+                   seed=seed,
+                   return_samples=True,
+                   output_noise=False)
+        targets = returns + discount(H) * VH.detach()
+        loss = V.output_density.log_prob(targets, *pV0).mean()
 
-    targets = returns + discount(H) * Vend.detach()
-
-    loss = torch.nn.functional.mse_loss(V0, targets)
     if hasattr(V, 'regularization_loss'):
         loss += V.regularization_loss() / N
     loss.backward()
 
     opt.step()
-    #print(torch.cat([rewards.sum(0), returns, targets, V0], -1))
+
+    if V_target is not None and polyak_averaging > 0:
+        tau = polyak_averaging
+        for param, target_param in zip(V.parameters(), V_target.parameters()):
+            target_param.data.copy_(tau * param.data +
+                                    (1 - tau) * target_param.data)
+    #print(torch.cat([rewards.sum(0), returns, targets, pV0[0]], -1))
+
+
+def update_Qvalue_function(Q,
+                           policy,
+                           opt,
+                           H,
+                           i,
+                           states,
+                           actions,
+                           rewards,
+                           discount,
+                           Q_target=None,
+                           polyak_averaging=0.005):
+    Q_tgt = Q if Q_target is None else Q_target
+    Q.zero_grad()
+    N = rewards[0].shape[0]
+    discounted_rewards = torch.stack(
+        [r * discount(j) for j, r in enumerate(rewards[:H])])
+    returns = discounted_rewards.sum(0).detach()
+
+    # we evaluate the value function with resample=True, but with the same seed
+    # this ensures that we don't overwrite the noise masks used when
+    # resample = False, but that we get the same masks for V0 and VH
+    seed = torch.randint(2**32, [1])
+    inps0 = torch.cat([states[0], actions[0]], -1)
+    inpsH = torch.cat([states[H], policy(states[H], resample=True)], -1)
+    if Q.output_density is None:
+        Q0 = Q(inps0.detach(), resample=True, seed=seed)
+        QH = Q_tgt(inpsH.detach(), resample=True, seed=seed)
+        targets = returns + discount(H) * QH.detach()
+        loss = torch.nn.functional.mse_loss(Q0, targets)
+    else:
+        # the output of the network are the parameters of a probability density
+        pQ0 = Q(inps0.detach(), resample=True, seed=seed, return_samples=False)
+        QH = Q_tgt(inpsH.detach(),
+                   resample=True,
+                   seed=seed,
+                   return_samples=True,
+                   output_noise=False)
+        targets = returns + discount(H) * QH.detach()
+        loss = V.output_density.log_prob(targets, *pQ0).mean()
+
+    if hasattr(V, 'regularization_loss'):
+        loss += V.regularization_loss() / N
+    loss.backward()
+
+    opt.step()
+
+    if Q_target is not None and polyak_averaging > 0:
+        tau = polyak_averaging
+        for param, target_param in zip(Q.parameters(), Q_target.parameters()):
+            target_param.data.copy_(tau * param.data +
+                                    (1 - tau) * target_param.data)
+    #print(torch.cat([rewards.sum(0), returns, targets, pQ0[0]], -1))
 
 
 if __name__ == '__main__':
     # parameters
-    n_initial_epi = 1
-    pred_H = 15
+    seed = 0
+    n_initial_epi = 0
+    pred_H = partial(threshold_linear, y0=10, yend=25, x0=5, xend=20)
+    val_H = partial(threshold_linear, y0=1, yend=25, x0=1, xend=25)
     control_H = 40
+    discount_factor = (1.0 / control_H)**(
+        2.0 / control_H
+    )  # make it so gamma**(control_H/2) == 1.0/control_H (carpe diem robot!)
     dyn_batch_size = 100
     pol_batch_size = 100
     N_polopt = 1000
     N_dynopt = 2000
     N_ps = 250
-    N_val_warmup = 1
     dyn_components = 1
-    dyn_hidden = [200] * 4
-    pol_hidden = [200] * 4
-    val_hidden = [200] * 4
+    dyn_hidden = [200] * 2
+    pol_hidden = [64] * 2
+    val_hidden = [64] * 2
     use_cuda = False
     learn_reward = True
     keep_best = False
+    stop_when_done = False
 
     # initialize environment
-    env = envs.Cartpole()
-    #import gym
-    #env = gym.make("HalfCheetah-v3")
-    env.seed(np.random.randint(2**32))
+    env = envs.Pendulum()
+    #env = envs.Cartpole()
+    import gym
+    env = gym.make("HalfCheetah-v3")
+    torch.manual_seed(seed)
+    np.random.seed(seed)
 
+    env_name = env.spec.id if env.spec is not None else env.__class__.__name__
     results_filename = os.path.expanduser(
-        "~/.prob_mbrl/results_%s_%s.pth.tar" %
-        (env.__class__.__name__,
-         datetime.datetime.now().strftime("%Y%m%d%H%M%S.%f")))
+        "~/.prob_mbrl/mc_pilco_no_mm_val/%s_%s.pth.tar" %
+        (env_name, datetime.datetime.now().strftime("%Y%m%d%H%M%S.%f")))
     D = env.observation_space.shape[0]
     U = env.action_space.shape[0]
     maxU = env.action_space.high
     minU = env.action_space.low
 
     # initialize reward/cost function
-    if learn_reward or env.reward_func is None:
+    if (learn_reward or not hasattr(env, 'reward_func')
+            or env.reward_func is None):
         reward_func = None
     else:
         reward_func = env.reward_func
@@ -84,6 +188,7 @@ if __name__ == '__main__':
     if hasattr(env, 'spec'):
         if hasattr(env.spec, 'max_episode_steps'):
             control_H = env.spec.max_episode_steps
+            stop_when_done = True
     initial_experience = control_H * n_initial_epi
 
     # initialize dynamics model
@@ -99,8 +204,9 @@ if __name__ == '__main__':
                            dynE,
                            dyn_hidden,
                            dropout_layers=[
-                               models.modules.CDropout(0.5, 0.1)
-                               for i in range(len(dyn_hidden))
+                               models.modules.CDropout(
+                                   0.25 * np.random.rand(hid), 0.1)
+                               for hid in dyn_hidden
                            ],
                            nonlin=torch.nn.ReLU)
     dyn = models.DynamicsModel(dyn_model,
@@ -108,30 +214,33 @@ if __name__ == '__main__':
                                output_density=output_density).float()
 
     # initalize policy
-    pol_model = models.mlp(D,
-                           2 * U,
-                           pol_hidden,
-                           dropout_layers=[
-                               models.modules.BDropout(0.1)
-                               for i in range(len(pol_hidden))
-                           ],
-                           nonlin=torch.nn.ReLU,
-                           output_nonlin=partial(models.DiagGaussianDensity,
-                                                 U))
+    pol_model = models.mlp(
+        D,
+        2 * U,
+        pol_hidden,
+        dropout_layers=[
+            models.modules.BDropout(0.25 * np.random.rand(hid))
+            for hid in pol_hidden
+        ],
+        nonlin=torch.nn.ReLU,
+        output_nonlin=partial(models.DiagGaussianDensity, U))
     pol = models.Policy(pol_model, maxU, minU).float()
 
     # initialize value function approximator
     critic_model = models.mlp(D,
-                              1,
+                              2,
                               val_hidden,
                               dropout_layers=[
-                                  models.modules.CDropout(0.5)
-                                  for i in range(len(pol_hidden))
+                                  models.modules.CDropout(
+                                      0.25 * np.random.rand(hid), 0.1)
+                                  for hid in val_hidden
                               ],
-                              weights_initializer=partial(torch.nn.init.normal,
-                                                          std=1e-4),
-                              nonlin=torch.nn.ReLU)
-    V = models.Regressor(critic_model).float()
+                              nonlin=torch.nn.Tanh)
+    V = models.Regressor(critic_model,
+                         output_density=models.DiagGaussianDensity(1)).float()
+    V_target = copy.deepcopy(V)
+    V_target.load_state_dict(V.state_dict())
+
     print('Dynamics model\n', dyn)
     print('Policy\n', pol)
     print('Critic\n', V)
@@ -143,10 +252,10 @@ if __name__ == '__main__':
     opt1 = torch.optim.Adam(dyn.parameters(), 1e-4)
 
     # initialize policy optimizer
-    opt2 = torch.optim.Adam(pol.parameters(), 1e-4, eps=1e-4)
+    opt2 = torch.optim.Adam(pol.parameters(), 1e-4)
 
     # initialize critic optimizer
-    opt3 = torch.optim.Adam(V.parameters(), 1e-4, eps=1e-4)
+    opt3 = torch.optim.Adam(V.parameters(), 1e-4)
 
     if use_cuda and torch.cuda.is_available():
         dyn = dyn.cuda()
@@ -161,14 +270,17 @@ if __name__ == '__main__':
     atexit.register(on_close)
 
     # initial experience data collection
+    env.seed(seed)
     scale = maxU - minU
     bias = minU
     rnd = lambda x, t: (scale * np.random.rand(U, ) + bias)  # noqa: E731
     while exp.n_samples() < initial_experience:
         ret = utils.apply_controller(
-            env, pol, min(control_H, initial_experience - exp.n_samples() + 1))
-        params_ = [p.clone() for p in list(pol.parameters())]
-        exp.append_episode(*ret, policy_params=params_)
+            env,
+            rnd,
+            min(control_H, initial_experience - exp.n_samples() + 1),
+            stop_when_done=stop_when_done)
+        exp.append_episode(*ret, policy_params=copy.deepcopy(pol.state_dict()))
         exp.save(results_filename)
 
     # policy learning loop
@@ -176,13 +288,14 @@ if __name__ == '__main__':
         # apply policy
         new_exp = exp.n_samples() + control_H
         while exp.n_samples() < new_exp:
-            ret = utils.apply_controller(
-                env,
-                pol,
-                min(control_H, new_exp - exp.n_samples() + 1),
-                callback=lambda *args, **kwargs: env.render())
-            params_ = [p.clone() for p in list(pol.parameters())]
-            exp.append_episode(*ret, policy_params=params_)
+            ret = utils.apply_controller(env,
+                                         pol,
+                                         min(control_H,
+                                             new_exp - exp.n_samples() + 1),
+                                         stop_when_done=stop_when_done,
+                                         callback=lambda *args: env.render())
+            exp.append_episode(*ret,
+                               policy_params=copy.deepcopy(pol.state_dict()))
             exp.save(results_filename)
 
         # train dynamics
@@ -200,46 +313,37 @@ if __name__ == '__main__':
 
         # sample initial states for policy optimization
         x0 = exp.sample_states(pol_batch_size,
-                               timestep=0).to(dyn.X.device).float()
-        x0 = x0 + 1e-2 * x0.std(0) * torch.randn_like(x0)
-        x0 = x0.detach()
+                               timestep=0).to(dyn.X.device).float().detach()
 
-        utils.plot_rollout(x0[:25], dyn, pol, pred_H * 2)
+        utils.plot_rollout(x0[:25], dyn, pol, pred_H(ps_it) * 2)
 
         # train policy
         def on_iteration(i, loss, states, actions, rewards, discount):
-            update_value_function(V, opt3, states, actions, rewards, discount)
             writer.add_scalar('mc_pilco/episode_%d/training loss' % ps_it,
                               loss, i)
-            if i % 100 == 0:
-                '''
-                states = states.transpose(0, 1).cpu().detach().numpy()
-                actions = actions.transpose(0, 1).cpu().detach().numpy()
-                rewards = rewards.transpose(0, 1).cpu().detach().numpy()
-                utils.plot_trajectories(states,
-                                        actions,
-                                        rewards,
-                                        plot_samples=True)
-                '''
-                writer.flush()
 
         print("Policy search iteration %d" % (ps_it + 1))
         algorithms.mc_pilco(x0,
                             dyn,
                             pol,
-                            pred_H,
+                            pred_H(ps_it),
                             opt2,
                             exp,
                             N_polopt,
-                            value_func=None if ps_it < N_val_warmup else V,
-                            discount=0.001**(1.0 / control_H),
+                            value_func=V,
+                            discount=discount_factor,
                             pegasus=True,
                             mm_states=False,
                             mm_rewards=False,
                             maximize=True,
                             clip_grad=1.0,
                             step_idx_to_sample=None,
-                            on_iteration=on_iteration)
-        utils.plot_rollout(x0[:25], dyn, pol, pred_H * 2)
+                            on_iteration=on_iteration,
+                            on_rollout=partial(update_value_function,
+                                               V,
+                                               opt3,
+                                               val_H(ps_it),
+                                               V_target=None))
+        utils.plot_rollout(x0[:25], dyn, pol, pred_H(ps_it) * 2)
         writer.add_scalar('robot/evaluation_loss',
                           torch.tensor(ret[2]).sum(), ps_it + 1)

@@ -43,23 +43,20 @@ def main():
     # model parameters
     n_layers = 4
     layer_width = 200
-    drop_rate = 0.25
+    drop_rate = 0.5
     odims = 1
     n_components = 5
     N_batch = 100
     use_cuda = False
 
     # single gaussian output model
-    mlp = models.mlp(
-        1,
-        2 * odims, [layer_width] * n_layers,
-        nonlin=torch.nn.ReLU,
-        weights_initializer=partial(torch.nn.init.xavier_normal_,
-                                    gain=torch.nn.init.calculate_gain('relu')),
-        biases_initializer=partial(torch.nn.init.uniform_, a=-1.0, b=1.0),
-        dropout_layers=[
-            models.CDropout(drop_rate, temperature=.1) for i in range(n_layers)
-        ])
+    mlp = models.mlp(1,
+                     2 * odims, [layer_width] * n_layers,
+                     dropout_layers=[
+                         models.CDropout(drop_rate *
+                                         np.random.rand(layer_width))
+                         for hid in range(n_layers)
+                     ])
     model = models.Regressor(mlp,
                              output_density=models.DiagGaussianDensity(odims))
 
@@ -67,12 +64,9 @@ def main():
     mlp2 = models.mlp(
         1,
         2 * n_components * odims + n_components + 1, [layer_width] * n_layers,
-        nonlin=torch.nn.ReLU,
-        weights_initializer=partial(torch.nn.init.xavier_normal_,
-                                    gain=torch.nn.init.calculate_gain('relu')),
-        biases_initializer=partial(torch.nn.init.uniform_, a=-1.0, b=1.0),
         dropout_layers=[
-            models.CDropout(drop_rate, temperature=.1) for i in range(n_layers)
+            models.CDropout(drop_rate * np.random.rand(layer_width))
+            for i in range(n_layers)
         ])
     mmodel = models.Regressor(mlp2,
                               output_density=models.GaussianMixtureDensity(
@@ -86,9 +80,9 @@ def main():
 
     # create training dataset
     train_x = np.concatenate([
-        np.arange(-0.6, -0.25, 0.01),
-        np.arange(0.1, 0.25, 0.01),
-        np.arange(0.65, 1.0, 0.01)
+        np.arange(-0.6, -0.25, 0.0005),
+        np.arange(0.1, 0.25, 0.0005),
+        np.arange(0.65, 1.0, 0.0005)
     ])
     train_y = f(train_x)
     train_y += 0.01 * np.random.randn(*train_y.shape)
@@ -113,14 +107,14 @@ def main():
                           iters=4000,
                           batchsize=N_batch,
                           resample=True,
-                          optimizer=opt1)
-    utils.train_regressor(
-        mmodel,
-        iters=4000,
-        batchsize=N_batch,
-        resample=True,
-        optimizer=opt2,
-        log_likelihood=losses.gaussian_mixture_log_likelihood)
+                          optimizer=opt1,
+                          log_likelihood=model.output_density.log_prob)
+    utils.train_regressor(mmodel,
+                          iters=4000,
+                          batchsize=N_batch,
+                          resample=True,
+                          optimizer=opt2,
+                          log_likelihood=mmodel.output_density.log_prob)
 
     # evaluate single gaussian model
     test_x = np.arange(-1.0, 1.5, 0.005)
