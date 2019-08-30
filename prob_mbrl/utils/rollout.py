@@ -76,7 +76,7 @@ def rollout(states,
     # mm_resample = (mm_resample_infer_ns_
     #               if infer_noise_variables else mm_resample_)
     mm_resample = get_mm_resample_script(states, torch.randn_like(states),
-                                         torch.eye(states.shape[-1]),
+                                         torch.eye(states.shape[-1]).to(states.device),
                                          infer_noise_variables)
 
     for i in range(steps):
