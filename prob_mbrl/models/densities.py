@@ -72,8 +72,7 @@ class DiagGaussianDensity(StochasticModule):
         Rearranges the incoming dimensions to correspond to the parameters
         of a Gaussian distribution, with diagonal covariance.
     '''
-
-    def __init__(self, output_dims, max_noise_std=1.0):
+    def __init__(self, output_dims, max_noise_std=3.0):
         super(DiagGaussianDensity, self).__init__()
         self.output_dims = output_dims
         self.register_buffer('z', torch.ones([1, 1]))
@@ -95,7 +94,8 @@ class DiagGaussianDensity(StochasticModule):
         D = int(self.output_dims)
         mean, log_std = x.split(D, -1)
 
-        log_std = -torch.nn.functional.softplus(-log_std) + self.max_log_std
+        log_std = -torch.nn.functional.softplus(
+            -log_std + self.max_log_std) + self.max_log_std
 
         # scale and center outputs
         if scaling_params is not None and len(scaling_params) > 0:
@@ -155,8 +155,7 @@ class GaussianMixtureDensity(StochasticModule):
      Mixture of Gaussian Density Network model. The components have diagonal
      covariance.
     '''
-
-    def __init__(self, output_dims, n_components, max_noise_std=1.0, **kwargs):
+    def __init__(self, output_dims, n_components, max_noise_std=3.0, **kwargs):
         super(GaussianMixtureDensity, self).__init__(**kwargs)
         self.n_components = n_components
         self.output_dims = output_dims
@@ -191,7 +190,8 @@ class GaussianMixtureDensity(StochasticModule):
             mean, log_std, extras = outs
             logit_pi, log_temperature = extras.split(self.n_components, -1)
 
-        log_std = -torch.nn.functional.softplus(-log_std) + self.max_log_std
+        log_std = -torch.nn.functional.softplus(
+            -log_std + self.max_log_std) + self.max_log_std
 
         # the output shape is [batch_size, output_dimensions, n_components]
         mean = mean.view(-1, D, self.n_components)
