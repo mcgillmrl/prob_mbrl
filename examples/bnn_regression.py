@@ -1,10 +1,11 @@
+import argparse
 import gc
 import numpy as np
 import torch
 from functools import partial
 from matplotlib import pyplot as plt
 from scipy.special import logsumexp
-from prob_mbrl import losses, models, utils
+from prob_mbrl import models, utils
 torch.set_flush_denormal(True)
 torch.set_num_threads(2)
 
@@ -41,51 +42,62 @@ def f(x, multimodal=False):
 
 def main():
     # model parameters
-    n_layers = 4
-    layer_width = 200
-    drop_rate = 0.5
-    odims = 1
-    n_components = 5
-    N_batch = 100
-    use_cuda = False
+    parser = argparse.ArgumentParser("BNN regression example")
+    parser.add_argument('--seed', type=int, default=0)
+    parser.add_argument('--net_shape',
+                        type=lambda s: [int(d) for d in s.split(',')],
+                        default=[200, 200])
+    parser.add_argument('--drop_rate', type=float, default=0.1)
+    parser.add_argument('--lr', type=float, default=1e-3)
+    parser.add_argument('--n_components', type=int, default=5)
+    parser.add_argument('--N_batch', type=int, default=100)
+    parser.add_argument('--train_iters', type=int, default=10000)
+    parser.add_argument('--noise_level', type=float, default=1e-1)
+    parser.add_argument('--resample', action='store_true')
+    parser.add_argument('--use_cuda', action='store_true')
+    args = parser.parse_args()
 
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+
+    idims, odims = 1, 1
     # single gaussian output model
-    mlp = models.mlp(1,
-                     2 * odims, [layer_width] * n_layers,
+    mlp = models.mlp(idims,
+                     2 * odims,
+                     args.net_shape,
                      dropout_layers=[
-                         models.CDropout(drop_rate *
-                                         np.random.rand(layer_width))
-                         for hid in range(n_layers)
+                         models.CDropout(args.drop_rate * np.ones(hid))
+                         for hid in args.net_shape
                      ])
     model = models.Regressor(mlp,
                              output_density=models.DiagGaussianDensity(odims))
 
     # mixture density network
-    mlp2 = models.mlp(
-        1,
-        2 * n_components * odims + n_components + 1, [layer_width] * n_layers,
-        dropout_layers=[
-            models.CDropout(drop_rate * np.random.rand(layer_width))
-            for i in range(n_layers)
-        ])
+    mlp2 = models.mlp(idims,
+                      2 * args.n_components * odims + args.n_components + 1,
+                      args.net_shape,
+                      dropout_layers=[
+                          models.CDropout(args.drop_rate * np.ones(hid))
+                          for hid in args.net_shape
+                      ])
     mmodel = models.Regressor(mlp2,
                               output_density=models.GaussianMixtureDensity(
-                                  odims, n_components))
+                                  odims, args.n_components))
 
     # optimizer for single gaussian model
-    opt1 = torch.optim.Adam(model.parameters(), 1e-3)
+    opt1 = torch.optim.Adam(model.parameters(), args.lr)
 
     # optimizer for mixture density network
-    opt2 = torch.optim.Adam(mmodel.parameters(), 1e-3)
+    opt2 = torch.optim.Adam(mmodel.parameters(), args.lr)
 
     # create training dataset
     train_x = np.concatenate([
-        np.arange(-0.6, -0.25, 0.0005),
-        np.arange(0.1, 0.25, 0.0005),
-        np.arange(0.65, 1.0, 0.0005)
+        np.linspace(-0.6, -0.25, 100),
+        np.linspace(0.1, 0.25, 100),
+        np.linspace(0.65, 1.0, 100)
     ])
     train_y = f(train_x)
-    train_y += 0.01 * np.random.randn(*train_y.shape)
+    train_y += args.noise_level * np.random.randn(*train_y.shape)
     X = torch.from_numpy(train_x[:, None]).float()
     Y = torch.from_numpy(train_y[:, None]).float()
 
@@ -95,34 +107,29 @@ def main():
     model = model.float()
     mmodel = mmodel.float()
 
-    if use_cuda and torch.cuda.is_available():
+    if args.use_cuda and torch.cuda.is_available():
         X = X.cuda()
         Y = Y.cuda()
         model = model.cuda()
         mmodel = mmodel.cuda()
 
     print(('Dataset size:', train_x.shape[0], 'samples'))
-
+    # train unimodal regressor
     utils.train_regressor(model,
-                          iters=4000,
-                          batchsize=N_batch,
-                          resample=True,
+                          iters=args.train_iters,
+                          batchsize=args.N_batch,
+                          resample=args.resample,
                           optimizer=opt1,
                           log_likelihood=model.output_density.log_prob)
-    utils.train_regressor(mmodel,
-                          iters=4000,
-                          batchsize=N_batch,
-                          resample=True,
-                          optimizer=opt2,
-                          log_likelihood=mmodel.output_density.log_prob)
 
     # evaluate single gaussian model
     test_x = np.arange(-1.0, 1.5, 0.005)
     ret = []
-    model.resample()
+    if args.resample:
+        model.resample()
     for i, x in enumerate(test_x):
         x = torch.tensor(x[None]).float().to(model.X.device)
-        outs = model(x.expand((N_batch, 1)), resample=False)
+        outs = model(x.expand((2 * args.N_batch, 1)), resample=False)
         y = torch.cat(outs[:2], -1)
         ret.append(y.cpu().detach().numpy())
         torch.cuda.empty_cache()
@@ -147,14 +154,23 @@ def main():
 
     print(model)
 
+    # train mixture regressor
+    utils.train_regressor(mmodel,
+                          iters=args.train_iters,
+                          batchsize=args.N_batch,
+                          resample=args.resample,
+                          optimizer=opt2,
+                          log_likelihood=mmodel.output_density.log_prob)
+
     # evaluate mixture density network
     test_x = np.arange(-1.0, 1.5, 0.005)
     ret = []
     logit_weights = []
-    mmodel.resample()
+    if args.resample:
+        mmodel.resample()
     for i, x in enumerate(test_x):
         x = torch.tensor(x[None]).float().to(mmodel.X.device)
-        outs = mmodel(x.expand((N_batch, 1)), resample=False)
+        outs = mmodel(x.expand((2 * args.N_batch, 1)), resample=False)
         y = torch.cat(outs[:2], -2)
         ret.append(y.cpu().detach().numpy())
         logit_weights.append(outs[2].cpu().detach().numpy())

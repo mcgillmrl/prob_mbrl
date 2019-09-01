@@ -37,31 +37,35 @@ def update_value_function(V,
                           rewards,
                           discount,
                           V_target=None,
+                          reg_weight=1e-3,
+                          resample=False,
                           polyak_averaging=0.005):
     V_tgt = V if V_target is None else V_target
+    V.train()
+
     V.zero_grad()
     N = rewards[0].shape[0]
     discounted_rewards = torch.stack(
         [r * discount(j) for j, r in enumerate(rewards[:H])])
     returns = discounted_rewards.sum(0).detach()
 
-    # we evaluate the value function with resample=True, but with the same seed
-    # this ensures that we don't overwrite the noise masks used when
-    # resample = False, but that we get the same masks for V0 and VH
+    # when we evaluate the value function with resample=True, we use
+    # the same seed. this ensures that we don't overwrite the noise masks
+    # used when resample = False, but that we get the same masks for V0 and VH
     seed = torch.randint(2**32, [1])
     if V.output_density is None:
-        V0 = V(states[0].detach(), resample=True, seed=seed)
-        VH = V_tgt(states[H].detach(), resample=True, seed=seed)
+        V0 = V(states[0].detach(), resample=resample, seed=seed)
+        VH = V_tgt(states[H].detach(), resample=resample, seed=seed)
         targets = returns + discount(H) * VH.detach()
         loss = torch.nn.functional.mse_loss(V0, targets)
     else:
         # the output of the network are the parameters of a probability density
         pV0 = V(states[0].detach(),
-                resample=True,
+                resample=resample,
                 seed=seed,
                 return_samples=False)
         VH = V_tgt(states[H].detach(),
-                   resample=True,
+                   resample=resample,
                    seed=seed,
                    return_samples=True,
                    output_noise=False)
@@ -69,7 +73,7 @@ def update_value_function(V,
         loss = V.output_density.log_prob(targets, *pV0).mean()
 
     if hasattr(V, 'regularization_loss'):
-        loss += V.regularization_loss() / N
+        loss += reg_weight * V.regularization_loss()
     loss.backward()
 
     opt.step()
@@ -79,6 +83,7 @@ def update_value_function(V,
         for param, target_param in zip(V.parameters(), V_target.parameters()):
             target_param.data.copy_(tau * param.data +
                                     (1 - tau) * target_param.data)
+    V.eval()
     #print(torch.cat([rewards.sum(0), returns, targets, pV0[0]], -1))
 
 
@@ -140,7 +145,7 @@ if __name__ == '__main__':
     # parameters
     seed = 0
     n_initial_epi = 0
-    pred_H = partial(threshold_linear, y0=10, yend=25, x0=5, xend=20)
+    pred_H = partial(threshold_linear, y0=25, yend=25, x0=5, xend=20)
     val_H = partial(threshold_linear, y0=1, yend=25, x0=1, xend=25)
     control_H = 40
     discount_factor = (1.0 / control_H)**(
@@ -148,12 +153,12 @@ if __name__ == '__main__':
     )  # make it so gamma**(control_H/2) == 1.0/control_H (carpe diem robot!)
     dyn_batch_size = 100
     pol_batch_size = 100
-    N_polopt = 1000
-    N_dynopt = 2000
-    N_ps = 250
+    pol_opt_iters = 1000
+    dyn_opt_iters = 2000
+    ps_iters = 250
     dyn_components = 1
-    dyn_hidden = [200] * 2
-    pol_hidden = [64] * 2
+    dyn_shape = [200] * 4
+    pol_shape = [64] * 2
     val_hidden = [64] * 2
     use_cuda = False
     learn_reward = True
@@ -163,8 +168,8 @@ if __name__ == '__main__':
     # initialize environment
     env = envs.Pendulum()
     #env = envs.Cartpole()
-    import gym
-    env = gym.make("HalfCheetah-v3")
+    #import gym
+    #env = gym.make("HalfCheetah-v3")
     torch.manual_seed(seed)
     np.random.seed(seed)
 
@@ -181,6 +186,7 @@ if __name__ == '__main__':
     if (learn_reward or not hasattr(env, 'reward_func')
             or env.reward_func is None):
         reward_func = None
+        learn_reward = True
     else:
         reward_func = env.reward_func
 
@@ -202,11 +208,11 @@ if __name__ == '__main__':
 
     dyn_model = models.mlp(D + U,
                            dynE,
-                           dyn_hidden,
+                           dyn_shape,
                            dropout_layers=[
                                models.modules.CDropout(
-                                   0.25 * np.random.rand(hid), 0.1)
-                               for hid in dyn_hidden
+                                   0.5 * np.random.rand(hid), 0.1)
+                               for hid in dyn_shape
                            ],
                            nonlin=torch.nn.ReLU)
     dyn = models.DynamicsModel(dyn_model,
@@ -217,10 +223,10 @@ if __name__ == '__main__':
     pol_model = models.mlp(
         D,
         2 * U,
-        pol_hidden,
+        pol_shape,
         dropout_layers=[
             models.modules.BDropout(0.25 * np.random.rand(hid))
-            for hid in pol_hidden
+            for hid in pol_shape
         ],
         nonlin=torch.nn.ReLU,
         output_nonlin=partial(models.DiagGaussianDensity, U))
@@ -284,7 +290,7 @@ if __name__ == '__main__':
         exp.save(results_filename)
 
     # policy learning loop
-    for ps_it in range(N_ps):
+    for ps_it in range(ps_iters):
         # apply policy
         new_exp = exp.n_samples() + control_H
         while exp.n_samples() < new_exp:
@@ -300,9 +306,9 @@ if __name__ == '__main__':
 
         # train dynamics
         X, Y = exp.get_dynmodel_dataset(deltas=True, return_costs=learn_reward)
-        dyn.set_dataset(X.to(dyn.X.device).float(), Y.to(dyn.X.device).float())
+        dyn.set_dataset(X.to(dyn.X.device, dyn.X.dtype), Y.to(dyn.X.device, dyn.X.dtype)
         utils.train_regressor(dyn,
-                              N_dynopt,
+                              dyn_opt_iters,
                               dyn_batch_size,
                               True,
                               opt1,
@@ -313,7 +319,8 @@ if __name__ == '__main__':
 
         # sample initial states for policy optimization
         x0 = exp.sample_states(pol_batch_size,
-                               timestep=0).to(dyn.X.device).float().detach()
+                               timestep=0).to(dyn.X.device,
+                                              dyn.X.dtype).detach()
 
         utils.plot_rollout(x0[:25], dyn, pol, pred_H(ps_it) * 2)
 
@@ -329,7 +336,7 @@ if __name__ == '__main__':
                             pred_H(ps_it),
                             opt2,
                             exp,
-                            N_polopt,
+                            pol_opt_iters,
                             value_func=V,
                             discount=discount_factor,
                             pegasus=True,
