@@ -67,20 +67,27 @@ def mlp(input_dims,
     net = BSequential(modules)
 
     # initialize weights
-    if callable(weights_initializer):
+    def reset_fn():
+        if callable(weights_initializer):
 
-        def fn(module):
-            if hasattr(module, 'weight'):
-                weights_initializer(module.weight)
+            def fn(module):
+                if hasattr(module, 'weight'):
+                    weights_initializer(module.weight)
 
-        net.apply(fn)
-    if callable(biases_initializer):
+            net.apply(fn)
+        if callable(biases_initializer):
 
-        def fn(module):
-            if hasattr(module, 'bias') and module.bias is not None:
-                biases_initializer(module.bias)
+            def fn(module):
+                if hasattr(module, 'bias') and module.bias is not None:
+                    biases_initializer(module.bias)
 
-        net.apply(fn)
+            net.apply(fn)
+        if 'fc0' in modules:
+            torch.nn.init.uniform_(modules['fc0'].bias, -1.0e-1, 1.0e-1)
+
+    reset_fn()
+    net.float()
+
     return net
 
 
@@ -125,11 +132,11 @@ class Regressor(torch.nn.Module):
             self.X.data = X
         self.Y.data = Y
         self.mx.data = self.X.mean(0, keepdim=True)
-        self.Sx.data = 1.1 * self.X.std(0, keepdim=True)
+        self.Sx.data = self.X.std(0, keepdim=True)
         self.Sx.data[self.Sx == 0] = 1.0
         self.iSx.data = self.Sx.reciprocal()
         self.my.data = self.Y.mean(0, keepdim=True)
-        self.Sy.data = 1.1 * self.Y.std(0, keepdim=True)
+        self.Sy.data = self.Y.std(0, keepdim=True)
         self.Sy.data[self.Sy == 0] = 1.0
         self.iSy.data = self.Sy.reciprocal()
         if N_ensemble > 1:
@@ -176,8 +183,8 @@ class Policy(torch.nn.Module):
         self.register_buffer('angle_dims', torch.tensor(angle_dims).long())
         if minU is None:
             minU = -maxU
-        scale = maxU - minU
-        bias = minU
+        scale = 0.5 * (maxU - minU)
+        bias = 0.5 * (maxU + minU)
         self.register_buffer('scale', torch.tensor(scale).squeeze())
         self.register_buffer('bias', torch.tensor(bias).squeeze())
 
@@ -186,6 +193,13 @@ class Policy(torch.nn.Module):
 
     def resample(self, *args, **kwargs):
         self.model.resample(*args, **kwargs)
+
+    def load(self, state_dict):
+        params = dict(self.named_parameters())
+        params.update(self.named_buffers())
+        for k, v in state_dict.items():
+            if k in params:
+                params[k].data = v.data.clone()
 
     def forward(self, x, **kwargs):
         return_numpy = isinstance(x, np.ndarray)
@@ -208,7 +222,7 @@ class Policy(torch.nn.Module):
             u = u + unoise
 
         # saturate output
-        u = self.scale * u.sigmoid() + self.bias
+        u = self.scale * u.tanh() + self.bias
 
         if return_numpy:
             return u.detach().cpu().numpy()
