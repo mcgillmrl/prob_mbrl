@@ -143,3 +143,25 @@ def batch_jacobian(f, x, out_dims=None):
                                allow_unused=True,
                                retain_graph=True)
     return dydx
+
+
+def polyak_averaging(current, target, tau=0.005):
+    for param, target_param in zip(current.parameters(), target.parameters()):
+        target_param.data.copy_(tau * param.data +
+                                (1 - tau) * target_param.data)
+
+
+def perturb_initial_action(i, states, actions):
+    if i == 0:
+        actions = actions + 1e-1 * (torch.randint(0,
+                                                  2,
+                                                  actions.shape[0:],
+                                                  device=actions.device,
+                                                  dtype=actions.dtype) *
+                                    actions.std(0)).detach()
+    return states, actions
+
+
+def threshold_linear(x, y0, yend, x0, xend):
+    y = (x - x0) * (yend - y0) / (xend - x0) + y0
+    return np.maximum(y0, np.minimum(yend, y)).astype(np.int32)
