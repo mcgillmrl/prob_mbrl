@@ -14,7 +14,7 @@ decoupled_optimizers = {}
 def iterate_minibatches(inputs, targets, batchsize):
     assert len(inputs) == len(targets)
     N = len(inputs)
-    indices = np.arange(0, N)
+    indices = np.arange(0, max(N, batchsize)) % N
     np.random.shuffle(indices)
     while True:
         for i in range(0, len(inputs), batchsize):
@@ -68,6 +68,7 @@ def train_regressor(model,
                     priority_eps=1e-3,
                     priority_alpha=0.6):
     global priority_tree
+    model.train()
     X = (model.X - model.mx) * model.iSx
     Y = (model.Y - model.my) * model.iSy
     N = X.shape[0]
@@ -112,11 +113,15 @@ def train_regressor(model,
 
         if prioritized_sampling:
             idxs, weights = batch[2:]
-            weights = torch.tensor(np.stack(weights)).to(X.device).float()
+            weights = torch.tensor(np.stack(weights)).to(X.device, X.dtype)
             tree = priority_tree[model]
-            # priorities = ((-log_probs.clamp(-2, 2)).exp().detach().numpy() +
+            #priorities = (2 - log_probs.clamp(-1, 2).detach().cpu().numpy() +
             #              priority_eps)**priority_alpha
-            priorities = (1.0 / tree.counts[idxs - tree.max_size + 1] +
+            a = 2
+            p0 = 1 + (a - log_probs.flatten().clamp(
+                -a, a).detach().cpu().numpy()) / (2 * a)
+            priorities = (p0 * tree.max_count /
+                          (tree.counts[idxs - tree.max_size + 1]) +
                           priority_eps)**priority_alpha
             [tree.update(idx, p) for idx, p in zip(idxs, priorities)]
             log_probs = log_probs * weights
