@@ -31,7 +31,7 @@ class PendulumModel(DynamicsModel):
         theta: 0 is pointing up and increasing counter-clockwise.
     """
 
-    def __init__(self, dt=0.1, m=1.0, l=1.0, mu=0.01, g=9.82):
+    def __init__(self, dt=0.1, m=1.0, l=1.0, mu=0.01, g=9.82):  # noqa: E741
         """Constructs PendulumDynamicsModel.
 
         Args:
@@ -43,7 +43,7 @@ class PendulumModel(DynamicsModel):
         super(PendulumModel, self).__init__()
         self.dt = Parameter(torch.tensor(dt), requires_grad=False)
         self.m = Parameter(torch.tensor(m), requires_grad=False)
-        self.l = Parameter(torch.tensor(l), requires_grad=False)
+        self.l = Parameter(torch.tensor(l), requires_grad=False)  # noqa: E741
         self.mu = Parameter(torch.tensor(mu), requires_grad=False)
         self.g = Parameter(torch.tensor(g), requires_grad=False)
 
@@ -97,12 +97,12 @@ class PendulumModel(DynamicsModel):
             if isinstance(u, torch.Tensor):
                 u = u.detach().numpy()
             m = self.m.numpy()
-            l = self.l.numpy()
+            l = self.l.numpy()  # noqa: E741
             mu = self.mu.numpy()
             g = self.g.numpy()
         else:
             m = self.m
-            l = self.l
+            l = self.l  # noqa: E741
             mu = self.mu
             g = self.g
 
