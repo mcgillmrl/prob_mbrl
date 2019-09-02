@@ -9,8 +9,6 @@ import tensorboardX
 
 from functools import partial
 from prob_mbrl import utils, models, algorithms, envs
-torch.set_flush_denormal(True)
-torch.set_num_threads(1)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser("Deep-PILCO with moment matching")
@@ -20,6 +18,7 @@ if __name__ == '__main__':
                         type=str,
                         default="~/.prob_mbrl/")
     parser.add_argument('-s', '--seed', type=int, default=1)
+    parser.add_argument('--num_threads', type=int, default=1)
     parser.add_argument('--n_initial_epi', type=int, default=0)
     parser.add_argument('--pred_H', type=int, default=25)
     parser.add_argument('--control_H', type=int, default=40)
@@ -34,7 +33,8 @@ if __name__ == '__main__':
                         type=lambda s: [int(d) for d in s.split(',')],
                         default=[200, 200])
 
-    parser.add_argument('--pol_lr', type=float, default=1e-3)
+    parser.add_argument('--pol_lr', type=float, default=1e-4)
+    parser.add_argument('--pol_clip', type=float, default=1.0)
     parser.add_argument('--pol_drop_rate', type=float, default=0.1)
     parser.add_argument('--pol_opt_iters', type=int, default=1000)
     parser.add_argument('--pol_batch_size', type=int, default=100)
@@ -55,6 +55,7 @@ if __name__ == '__main__':
     locals().update(args.__dict__)
 
     # initialize environment
+    torch.set_num_threads(args.num_threads)
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
     if args.env in envs.__all__:
@@ -66,7 +67,7 @@ if __name__ == '__main__':
     env_name = env.spec.id if env.spec is not None else env.__class__.__name__
     output_folder = os.path.expanduser(args.output_folder)
     results_filename = os.path.join(
-        output_folder, "mc_pilco_mm/{}_{}.pth.tar".format(
+        output_folder, "mc_pilco_no_mm/{}/experience_{}.pth.tar".format(
             env_name,
             datetime.datetime.now().strftime("%Y%m%d%H%M%S.%f")))
     D = env.observation_space.shape[0]
@@ -123,8 +124,7 @@ if __name__ == '__main__':
                            biases_initializer=None,
                            nonlin=torch.nn.ReLU,
                            output_nonlin=partial(models.DiagGaussianDensity,
-                                                 U,
-                                                 max_noise_std=1.0))
+                                                 U))
 
     pol = models.Policy(pol_model, maxU, minU).float()
 
@@ -144,7 +144,8 @@ if __name__ == '__main__':
         dyn = dyn.cuda()
         pol = pol.cuda()
 
-    writer = tensorboardX.SummaryWriter()
+    writer = tensorboardX.SummaryWriter(logdir=os.path.join(
+        output_folder, "mc_pilco_no_mm/{}/logs/".format(env_name)))
 
     # callbacks
     def on_close():
@@ -209,7 +210,6 @@ if __name__ == '__main__':
                               loss, i)
 
         print("Policy search iteration %d" % (ps_it + 1))
-
         algorithms.mc_pilco(x0,
                             dyn,
                             pol,
@@ -222,7 +222,7 @@ if __name__ == '__main__':
                             mm_states=False,
                             mm_rewards=False,
                             maximize=True,
-                            clip_grad=1.0,
+                            clip_grad=args.pol_clip,
                             step_idx_to_sample=None,
                             init_state_noise=1e-1 * x0.std(0),
                             prioritized_replay=True,

@@ -6,8 +6,6 @@ from functools import partial
 from matplotlib import pyplot as plt
 from scipy.special import logsumexp
 from prob_mbrl import models, utils
-torch.set_flush_denormal(True)
-torch.set_num_threads(2)
 
 
 def gaussian_sample(mu, log_sigma):
@@ -44,6 +42,7 @@ def main():
     # model parameters
     parser = argparse.ArgumentParser("BNN regression example")
     parser.add_argument('--seed', type=int, default=0)
+    parser.add_argument('--num_threads', type=int, default=1)
     parser.add_argument('--net_shape',
                         type=lambda s: [int(d) for d in s.split(',')],
                         default=[200, 200])
@@ -59,6 +58,7 @@ def main():
 
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
+    torch.set_num_threads(args.num_threads)
 
     idims, odims = 1, 1
     # single gaussian output model

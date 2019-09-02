@@ -1,3 +1,4 @@
+import argparse
 import atexit
 import copy
 import datetime
@@ -6,27 +7,8 @@ import os
 import torch
 import tensorboardX
 
-from prob_mbrl import utils, models, algorithms, envs
 from functools import partial
-torch.set_flush_denormal(True)
-torch.set_num_threads(2)
-
-
-def perturb_initial_action(i, states, actions):
-    if i == 0:
-        actions = actions + 1e-1 * (torch.randint(0,
-                                                  2,
-                                                  actions.shape[0:],
-                                                  device=actions.device,
-                                                  dtype=actions.dtype) *
-                                    actions.std(0)).detach()
-    return states, actions
-
-
-def threshold_linear(x, y0, yend, x0, xend):
-    y = (x - x0) * (yend - y0) / (xend - x0) + y0
-    return np.maximum(y0, np.minimum(yend, y)).astype(np.int32)
-
+from prob_mbrl import utils, models, algorithms, envs
 
 def update_value_function(V,
                           opt,
@@ -142,51 +124,75 @@ def update_Qvalue_function(Q,
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser("Deep-PILCO with moment matching")
+    parser.add_argument('-e', '--env', type=str, default="Cartpole")
+    parser.add_argument('-o',
+                        '--output_folder',
+                        type=str,
+                        default="~/.prob_mbrl/")
+    parser.add_argument('-s', '--seed', type=int, default=1)
+    parser.add_argument('--num_threads', type=int, default=1)
+    parser.add_argument('--n_initial_epi', type=int, default=0)
+    parser.add_argument('--pred_H', type=int, default=25)
+    parser.add_argument('--control_H', type=int, default=40)
+    parser.add_argument('--discount_factor', type=float, default=None)
+
+    parser.add_argument('--dyn_lr', type=float, default=1e-4)
+    parser.add_argument('--dyn_opt_iters', type=int, default=2000)
+    parser.add_argument('--dyn_batch_size', type=int, default=100)
+    parser.add_argument('--dyn_drop_rate', type=float, default=0.1)
+    parser.add_argument('--dyn_components', type=int, default=1)
+    parser.add_argument('--dyn_shape',
+                        type=lambda s: [int(d) for d in s.split(',')],
+                        default=[200, 200])
+
+    parser.add_argument('--pol_lr', type=float, default=1e-4)
+    parser.add_argument('--pol_clip', type=float, default=1.0)
+    parser.add_argument('--pol_drop_rate', type=float, default=0.1)
+    parser.add_argument('--pol_opt_iters', type=int, default=1000)
+    parser.add_argument('--pol_batch_size', type=int, default=100)
+    parser.add_argument('--ps_iters', type=int, default=100)
+    parser.add_argument('--pol_shape',
+                        type=lambda s: [int(d) for d in s.split(',')],
+                        default=[200, 200])
+
+    parser.add_argument('--plot_level', type=int, default=0)
+    parser.add_argument('--render', action='store_true')
+    parser.add_argument('--use_cuda', action='store_true')
+    parser.add_argument('--learn_reward', action='store_true')
+    parser.add_argument('--keep_best', action='store_true')
+    parser.add_argument('--stop_when_done', action='store_true')
+
     # parameters
-    seed = 0
-    n_initial_epi = 0
-    pred_H = partial(threshold_linear, y0=25, yend=25, x0=5, xend=20)
-    val_H = partial(threshold_linear, y0=1, yend=25, x0=1, xend=25)
-    control_H = 40
-    discount_factor = (1.0 / control_H)**(
-        2.0 / control_H
-    )  # make it so gamma**(control_H/2) == 1.0/control_H (carpe diem robot!)
-    dyn_batch_size = 100
-    pol_batch_size = 100
-    pol_opt_iters = 1000
-    dyn_opt_iters = 2000
-    ps_iters = 250
-    dyn_components = 1
-    dyn_shape = [200] * 4
-    pol_shape = [64] * 2
-    val_hidden = [64] * 2
-    use_cuda = False
-    learn_reward = True
-    keep_best = False
-    stop_when_done = False
+    args = parser.parse_args()
+    locals().update(args.__dict__)
 
     # initialize environment
-    env = envs.Pendulum()
-    #env = envs.Cartpole()
-    #import gym
-    #env = gym.make("HalfCheetah-v3")
-    torch.manual_seed(seed)
-    np.random.seed(seed)
+    torch.set_num_threads(args.num_threads)
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+    if args.env in envs.__all__:
+        env = envs.__dict__[args.env]()
+    else:
+        import gym
+        env = gym.make(env.name)
 
     env_name = env.spec.id if env.spec is not None else env.__class__.__name__
-    results_filename = os.path.expanduser(
-        "~/.prob_mbrl/mc_pilco_no_mm_val/%s_%s.pth.tar" %
-        (env_name, datetime.datetime.now().strftime("%Y%m%d%H%M%S.%f")))
+    output_folder = os.path.expanduser(args.output_folder)
+    results_filename = os.path.join(
+        output_folder, "mc_pilco_no_mm_val/{}/experience_{}.pth.tar".format(
+            env_name,
+            datetime.datetime.now().strftime("%Y%m%d%H%M%S.%f")))
     D = env.observation_space.shape[0]
     U = env.action_space.shape[0]
     maxU = env.action_space.high
     minU = env.action_space.low
 
     # initialize reward/cost function
-    if (learn_reward or not hasattr(env, 'reward_func')
+    if (args.learn_reward or not hasattr(env, 'reward_func')
             or env.reward_func is None):
         reward_func = None
-        learn_reward = True
+        args.learn_reward = True
     else:
         reward_func = env.reward_func
 
@@ -194,11 +200,11 @@ if __name__ == '__main__':
     if hasattr(env, 'spec'):
         if hasattr(env.spec, 'max_episode_steps'):
             control_H = env.spec.max_episode_steps
-            stop_when_done = True
+            args.stop_when_done = True
     initial_experience = control_H * n_initial_epi
 
     # initialize dynamics model
-    dynE = 2 * (D + 1) if learn_reward else 2 * D
+    dynE = 2 * (D + 1) if args.learn_reward else 2 * D
     if dyn_components > 1:
         output_density = models.GaussianMixtureDensity(dynE / 2,
                                                        dyn_components)
@@ -206,30 +212,33 @@ if __name__ == '__main__':
     else:
         output_density = models.DiagGaussianDensity(dynE / 2)
 
-    dyn_model = models.mlp(D + U,
-                           dynE,
-                           dyn_shape,
-                           dropout_layers=[
-                               models.modules.CDropout(
-                                   0.5 * np.random.rand(hid), 0.1)
-                               for hid in dyn_shape
-                           ],
-                           nonlin=torch.nn.ReLU)
+    dyn_model = models.mlp(
+        D + U,
+        dynE,
+        dyn_shape,
+        dropout_layers=[
+            models.modules.CDropout(dyn_drop_rate * np.ones(hid))
+            if dyn_drop_rate > 0 else None for hid in dyn_shape
+        ],
+        nonlin=torch.nn.ReLU)
     dyn = models.DynamicsModel(dyn_model,
                                reward_func=reward_func,
                                output_density=output_density).float()
 
     # initalize policy
-    pol_model = models.mlp(
-        D,
-        2 * U,
-        pol_shape,
-        dropout_layers=[
-            models.modules.BDropout(0.25 * np.random.rand(hid))
-            for hid in pol_shape
-        ],
-        nonlin=torch.nn.ReLU,
-        output_nonlin=partial(models.DiagGaussianDensity, U))
+    pol_model = models.mlp(D,
+                           2 * U,
+                           pol_shape,
+                           dropout_layers=[
+                               models.modules.BDropout(pol_drop_rate)
+                               if pol_drop_rate > 0 else None
+                               for hid in pol_shape
+                           ],
+                           biases_initializer=None,
+                           nonlin=torch.nn.ReLU,
+                           output_nonlin=partial(models.DiagGaussianDensity,
+                                                 U))
+
     pol = models.Policy(pol_model, maxU, minU).float()
 
     # initialize value function approximator
@@ -255,19 +264,20 @@ if __name__ == '__main__':
     exp = utils.ExperienceDataset()
 
     # initialize dynamics optimizer
-    opt1 = torch.optim.Adam(dyn.parameters(), 1e-4)
+    opt1 = torch.optim.Adam(dyn.parameters(), dyn_lr)
 
     # initialize policy optimizer
-    opt2 = torch.optim.Adam(pol.parameters(), 1e-4)
+    opt2 = torch.optim.Adam(pol.parameters(), pol_lr)
 
     # initialize critic optimizer
     opt3 = torch.optim.Adam(V.parameters(), 1e-4)
 
-    if use_cuda and torch.cuda.is_available():
+    if args.use_cuda and torch.cuda.is_available():
         dyn = dyn.cuda()
         pol = pol.cuda()
 
-    writer = tensorboardX.SummaryWriter()
+    writer = tensorboardX.SummaryWriter(logdir=os.path.join(
+        output_folder, "mc_pilco_no_mm/{}/logs/".format(env_name)))
 
     # callbacks
     def on_close():
@@ -277,19 +287,20 @@ if __name__ == '__main__':
 
     # initial experience data collection
     env.seed(seed)
-    scale = maxU - minU
-    bias = minU
-    rnd = lambda x, t: (scale * np.random.rand(U, ) + bias)  # noqa: E731
+    rnd = lambda x, t: env.action_space.sample()  # noqa: E731
     while exp.n_samples() < initial_experience:
         ret = utils.apply_controller(
             env,
             rnd,
             min(control_H, initial_experience - exp.n_samples() + 1),
-            stop_when_done=stop_when_done)
+            stop_when_done=args.stop_when_done)
         exp.append_episode(*ret, policy_params=copy.deepcopy(pol.state_dict()))
         exp.save(results_filename)
 
     # policy learning loop
+    render_fn = (lambda *args, **kwargs: env.render()) if args.render else None
+    update_V_fn = partial(
+        update_value_function, V, opt3, pred_H)
     for ps_it in range(ps_iters):
         # apply policy
         new_exp = exp.n_samples() + control_H
@@ -298,15 +309,17 @@ if __name__ == '__main__':
                                          pol,
                                          min(control_H,
                                              new_exp - exp.n_samples() + 1),
-                                         stop_when_done=stop_when_done,
-                                         callback=lambda *args: env.render())
+                                         stop_when_done=args.stop_when_done,
+                                         callback=render_fn)
             exp.append_episode(*ret,
                                policy_params=copy.deepcopy(pol.state_dict()))
             exp.save(results_filename)
 
         # train dynamics
-        X, Y = exp.get_dynmodel_dataset(deltas=True, return_costs=learn_reward)
-        dyn.set_dataset(X.to(dyn.X.device, dyn.X.dtype), Y.to(dyn.X.device, dyn.X.dtype)
+        X, Y = exp.get_dynmodel_dataset(deltas=True,
+                                        return_costs=args.learn_reward)
+        dyn.set_dataset(X.to(dyn.X.device, dyn.X.dtype),
+                        Y.to(dyn.X.device, dyn.X.dtype))
         utils.train_regressor(dyn,
                               dyn_opt_iters,
                               dyn_batch_size,
@@ -322,7 +335,8 @@ if __name__ == '__main__':
                                timestep=0).to(dyn.X.device,
                                               dyn.X.dtype).detach()
 
-        utils.plot_rollout(x0[:25], dyn, pol, pred_H(ps_it) * 2)
+        if args.plot_level > 0:
+            utils.plot_rollout(x0[:25], dyn, pol, pred_H * 2)
 
         # train policy
         def on_iteration(i, loss, states, actions, rewards, discount):
@@ -333,7 +347,7 @@ if __name__ == '__main__':
         algorithms.mc_pilco(x0,
                             dyn,
                             pol,
-                            pred_H(ps_it),
+                            pred_H,
                             opt2,
                             exp,
                             pol_opt_iters,
@@ -343,14 +357,13 @@ if __name__ == '__main__':
                             mm_states=False,
                             mm_rewards=False,
                             maximize=True,
-                            clip_grad=1.0,
+                            clip_grad=args.pol_clip,
                             step_idx_to_sample=None,
+                            init_state_noise=1e-1 * x0.std(0),
+                            prioritized_replay=True,
                             on_iteration=on_iteration,
-                            on_rollout=partial(update_value_function,
-                                               V,
-                                               opt3,
-                                               val_H(ps_it),
-                                               V_target=None))
-        utils.plot_rollout(x0[:25], dyn, pol, pred_H(ps_it) * 2)
+                            on_rollout=update_V_fn)
+        if args.plot_level > 0:
+            utils.plot_rollout(x0[:25], dyn, pol, pred_H * 2)
         writer.add_scalar('robot/evaluation_loss',
                           torch.tensor(ret[2]).sum(), ps_it + 1)
