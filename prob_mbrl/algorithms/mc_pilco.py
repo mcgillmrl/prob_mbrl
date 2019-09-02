@@ -175,12 +175,14 @@ def mc_pilco(init_states,
         # compute gradients
         loss.backward()
 
-        # for name, p in policy.named_parameters():
-        #     g = p.grad
-        #     print('{} p\tmean {},\tmin {},\tmax {},\tnorm {} '.format(
-        #         name, p.mean(), p.min(), p.max(), p.norm()))
-        #     print('{} g\tmean {},\tmin {},\tmax {},\tnorm {} '.format(
-        #         name, g.mean(), g.min(), g.max(), g.norm()))
+        if debug:
+            for name, p in policy.named_parameters():
+                print('{} p\tmean {},\tmin {},\tmax {},\tnorm {} '.format(
+                    name, p.mean(), p.min(), p.max(), p.norm()))
+            for name, p in policy.named_parameters():
+                g = p.grad
+                print('{} g\tmean {},\tmin {},\tmax {},\tnorm {} '.format(
+                    name, g.mean(), g.min(), g.max(), g.norm()))
         # clip gradients
         if clip_grad is not None:
             torch.nn.utils.clip_grad_norm_(policy.parameters(), clip_grad)
