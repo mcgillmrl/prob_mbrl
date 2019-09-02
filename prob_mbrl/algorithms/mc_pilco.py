@@ -34,6 +34,7 @@ def mc_pilco(init_states,
              prioritized_replay=False,
              priority_alpha=0.6,
              priority_eps=1e-8,
+             init_priority_beta=0.1,
              debug=False,
              rollout_kwargs={}):
     global policy_update_counter, x0_tree, episode_counter
@@ -71,13 +72,13 @@ def mc_pilco(init_states,
     resample()
 
     x0 = init_states
-    states = [init_states] * 2
     n_opt_steps = policy_update_counter[policy]
 
     if prioritized_replay:
         x0_idxs = None
         x0_weights = torch.ones_like(x0)
-        priority_beta = 0.1
+        priority_beta = init_priority_beta
+        old_counts = x0_tree.counts.copy()
 
     for i in pbar:
         # zero gradients
@@ -214,8 +215,16 @@ def mc_pilco(init_states,
                 x0_weights = torch.tensor(np.stack(x0_weights)).to(
                     x0.device, x0.dtype)
                 x0.requires_grad_(True)
-                # angles = np.arctan2(zip(*x0_tree.data))[-2:]
-                # print(list(zip(angles, x0_tree.counts)))
+                if debug > 1:
+                    angles = torch.atan2(*torch.split(
+                        torch.stack(x0_tree.data[:exp.n_samples()])[:, -2:], 1,
+                        -1)).flatten().detach().cpu().numpy()
+                    print(
+                        sorted(list(
+                            zip(
+                                angles, x0_tree.counts[:exp.n_samples()] -
+                                old_counts[:exp.n_samples()])),
+                               key=lambda x: x[1]))
             else:
                 x0 = exp.sample_states(N_particles,
                                        timestep=step_idx_to_sample).to(
@@ -234,6 +243,7 @@ class MCPILCOAgent(torch.nn.Module):
     '''
     Utility class for instantiating an MCPILCO learning agent
     '''
+
     def __init__(self,
                  policy,
                  dynamics,
@@ -412,6 +422,7 @@ class MCPILCOAgent(torch.nn.Module):
     def fit_dynamics(self):
         '''
         '''
+
     def forward(self, x):
         '''
         Calling the agent is equivalent to evaluating its policy
