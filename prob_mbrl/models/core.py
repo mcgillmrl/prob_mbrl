@@ -18,6 +18,8 @@ def mlp(input_dims,
         weights_initializer=partial(torch.nn.init.xavier_normal_,
                                     gain=torch.nn.init.calculate_gain('relu')),
         biases_initializer=partial(torch.nn.init.uniform_, a=-0.1, b=0.1),
+        hidden_biases=True,
+        output_biases=True,
         dropout_layers=BDropout,
         input_dropout=None,
         spectral_norm=False,
@@ -42,7 +44,7 @@ def mlp(input_dims,
         if inspect.isclass(drop_i):
             drop_i = drop_i(name='drop%d' % i)
         # fully connected layer
-        fc = torch.nn.Linear(din, dout)
+        fc = torch.nn.Linear(din, dout, bias=hidden_biases)
         if spectral_norm:
             fc = SpectralNorm(fc)
         modules['fc%d' % i] = fc
@@ -55,7 +57,7 @@ def mlp(input_dims,
             modules['drop%d' % i] = drop_i
 
     # project to output dimensions
-    fc_out = torch.nn.Linear(dims[-1], output_dims)
+    fc_out = torch.nn.Linear(dims[-1], output_dims, bias=output_biases)
     if spectral_norm_output:
         fc_out = SpectralNorm(fc_out)
     modules['fc_out'] = fc_out
@@ -82,8 +84,6 @@ def mlp(input_dims,
                     biases_initializer(module.bias)
 
             net.apply(fn)
-        if 'fc0' in modules:
-            torch.nn.init.uniform_(modules['fc0'].bias, -1.0e-1, 1.0e-1)
 
     reset_fn()
     net.float()
@@ -142,6 +142,13 @@ class Regressor(torch.nn.Module):
         if N_ensemble > 1:
             self.masks.data = torch.bernoulli(
                 p * torch.ones(X.shape[0], N_ensemble))
+
+    def load(self, state_dict):
+        params = dict(self.named_parameters())
+        params.update(self.named_buffers())
+        for k, v in state_dict.items():
+            if k in params:
+                params[k].data = v.data.clone()
 
     def regularization_loss(self):
         return self.model.regularization_loss()
