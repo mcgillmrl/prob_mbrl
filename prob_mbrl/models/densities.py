@@ -20,11 +20,12 @@ class CategoricalDensity(StochasticModule):
         super(CategoricalDensity, self).__init__()
         self.output_dims = output_dims
         self.register_buffer('z', torch.ones([1, 1]))
+        self.expl_scale = 1.0
 
     def resample(self, seed=None):
         if seed is not None:
             torch.manual_seed(seed)
-        u = torch.distributions.utils.clamp_probs(self.z)
+        u = torch.rand_like(self.z)
         self.z.data = -(-u.log()).log()
 
     def forward(self,
@@ -46,7 +47,7 @@ class CategoricalDensity(StochasticModule):
             if (x.shape != self.z.shape) or resample_output_noise:
                 if seed is not None:
                     torch.manual_seed(seed)
-                u = torch.distributions.utils.clamp_probs(torch.rand_like(x))
+                u = torch.rand_like(x)
                 self.z.data = -(-u.log()).log()
             z = self.z
             # sample from gumbel softmax
@@ -77,6 +78,7 @@ class DiagGaussianDensity(StochasticModule):
         self.output_dims = output_dims
         self.register_buffer('z', torch.ones([1, 1]))
         self.register_buffer('max_log_std', torch.tensor(max_noise_std).log())
+        self.expl_scale = 1.0
 
     def resample(self, seed=None):
         if seed is not None:
@@ -116,7 +118,7 @@ class DiagGaussianDensity(StochasticModule):
                         torch.manual_seed(seed)
                     self.z.data = torch.randn_like(mean)
                 z = self.z
-                noise = z * log_std.clamp(-15, 15).exp()
+                noise = z * log_std.exp()
                 return samples, noise
             return samples
         else:
@@ -136,7 +138,7 @@ class DiagGaussianDensity(StochasticModule):
             if device_id not in HALF_LOG_TWO_PI:
                 HALF_LOG_TWO_PI[device_id] = HALF_LOG_TWO_PI['default'].to(
                     z.device)
-            stds = log_std.clamp(-15, 15).exp()
+            stds = log_std.exp()
             lml = - 0.5 * ((deltas*stds.reciprocal())**2).sum(-1)\
                 - log_std.sum(-1)\
                 - D * HALF_LOG_TWO_PI[device_id]
@@ -166,7 +168,7 @@ class GaussianMixtureDensity(StochasticModule):
     def resample(self, seed=None):
         if seed is not None:
             torch.manual_seed(seed)
-        u = torch.distributions.utils.clamp_probs(torch.rand_like(self.z_pi))
+        u = torch.rand_like(self.z_pi)
         self.z_pi.data = -(-u.log()).log()
         self.z_normal.data = torch.randn_like(self.z_normal)
 
@@ -214,8 +216,7 @@ class GaussianMixtureDensity(StochasticModule):
             if seed is not None:
                 torch.manual_seed(seed)
             if (logit_pi.shape != self.z_pi.shape) or resample_output_noise:
-                u = torch.distributions.utils.clamp_probs(
-                    torch.rand_like(logit_pi))
+                u = torch.rand_like(logit_pi)
                 self.z_pi.data = -(-u.log()).log()
             z1 = self.z_pi
             # sample from gumbel softmax
@@ -234,7 +235,7 @@ class GaussianMixtureDensity(StochasticModule):
                     self.z_normal.data = torch.randn(*mean.shape[:-1],
                                                      device=mean.device)
                 z2 = self.z_normal
-                noise = z2 * (log_std * k).sum(-1).clamp(-15, 15).exp()
+                noise = z2 * (log_std * k).sum(-1).exp()
 
                 return samples, noise
             return samples
@@ -252,7 +253,7 @@ class GaussianMixtureDensity(StochasticModule):
         deltas = mean - z.unsqueeze(-1)
 
         # weighted probabilities
-        stds = log_std.clamp(-15, 15).exp()
+        stds = log_std.exp()
         log_norm = -D * HALF_LOG_TWO_PI[device_id] - log_std.sum(-2)
         dists = -0.5 * ((deltas * stds.reciprocal())**2).sum(-2)
         log_probs = log_softmax(logit_pi, -1) + log_norm + dists
