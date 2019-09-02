@@ -10,6 +10,7 @@ import tensorboardX
 from functools import partial
 from prob_mbrl import utils, models, algorithms, envs
 
+
 def update_value_function(V,
                           opt,
                           H,
@@ -26,7 +27,6 @@ def update_value_function(V,
     V.train()
 
     V.zero_grad()
-    N = rewards[0].shape[0]
     discounted_rewards = torch.stack(
         [r * discount(j) for j, r in enumerate(rewards[:H])])
     returns = discounted_rewards.sum(0).detach()
@@ -66,7 +66,7 @@ def update_value_function(V,
             target_param.data.copy_(tau * param.data +
                                     (1 - tau) * target_param.data)
     V.eval()
-    #print(torch.cat([rewards.sum(0), returns, targets, pV0[0]], -1))
+    # print(torch.cat([rewards.sum(0), returns, targets, pV0[0]], -1))
 
 
 def update_Qvalue_function(Q,
@@ -120,7 +120,7 @@ def update_Qvalue_function(Q,
         for param, target_param in zip(Q.parameters(), Q_target.parameters()):
             target_param.data.copy_(tau * param.data +
                                     (1 - tau) * target_param.data)
-    #print(torch.cat([rewards.sum(0), returns, targets, pQ0[0]], -1))
+    # print(torch.cat([rewards.sum(0), returns, targets, pQ0[0]], -1))
 
 
 if __name__ == '__main__':
@@ -133,7 +133,7 @@ if __name__ == '__main__':
     parser.add_argument('-s', '--seed', type=int, default=1)
     parser.add_argument('--num_threads', type=int, default=1)
     parser.add_argument('--n_initial_epi', type=int, default=0)
-    parser.add_argument('--pred_H', type=int, default=25)
+    parser.add_argument('--pred_H', type=int, default=15)
     parser.add_argument('--control_H', type=int, default=40)
     parser.add_argument('--discount_factor', type=float, default=None)
 
@@ -162,6 +162,7 @@ if __name__ == '__main__':
     parser.add_argument('--learn_reward', action='store_true')
     parser.add_argument('--keep_best', action='store_true')
     parser.add_argument('--stop_when_done', action='store_true')
+    parser.add_argument('--expl_noise', type=float, default=0.0)
 
     # parameters
     args = parser.parse_args()
@@ -201,24 +202,24 @@ if __name__ == '__main__':
         if hasattr(env.spec, 'max_episode_steps'):
             control_H = env.spec.max_episode_steps
             args.stop_when_done = True
-    initial_experience = control_H * n_initial_epi
+    initial_experience = control_H * args.n_initial_epi
 
     # initialize dynamics model
     dynE = 2 * (D + 1) if args.learn_reward else 2 * D
-    if dyn_components > 1:
+    if args.dyn_components > 1:
         output_density = models.GaussianMixtureDensity(dynE / 2,
-                                                       dyn_components)
-        dynE = (dynE + 1) * dyn_components + 1
+                                                       args.dyn_components)
+        dynE = (dynE + 1) * args.dyn_components + 1
     else:
         output_density = models.DiagGaussianDensity(dynE / 2)
 
     dyn_model = models.mlp(
         D + U,
         dynE,
-        dyn_shape,
+        args.dyn_shape,
         dropout_layers=[
-            models.modules.CDropout(dyn_drop_rate * np.ones(hid))
-            if dyn_drop_rate > 0 else None for hid in dyn_shape
+            models.modules.CDropout(args.dyn_drop_rate * np.ones(hid))
+            if args.dyn_drop_rate > 0 else None for hid in args.dyn_shape
         ],
         nonlin=torch.nn.ReLU)
     dyn = models.DynamicsModel(dyn_model,
@@ -228,11 +229,11 @@ if __name__ == '__main__':
     # initalize policy
     pol_model = models.mlp(D,
                            2 * U,
-                           pol_shape,
+                           args.pol_shape,
                            dropout_layers=[
-                               models.modules.BDropout(pol_drop_rate)
-                               if pol_drop_rate > 0 else None
-                               for hid in pol_shape
+                               models.modules.BDropout(args.pol_drop_rate)
+                               if args.pol_drop_rate > 0 else None
+                               for hid in args.pol_shape
                            ],
                            biases_initializer=None,
                            nonlin=torch.nn.ReLU,
@@ -244,11 +245,11 @@ if __name__ == '__main__':
     # initialize value function approximator
     critic_model = models.mlp(D,
                               2,
-                              val_hidden,
+                              args.val_hidden,
                               dropout_layers=[
                                   models.modules.CDropout(
                                       0.25 * np.random.rand(hid), 0.1)
-                                  for hid in val_hidden
+                                  for hid in args.val_hidden
                               ],
                               nonlin=torch.nn.Tanh)
     V = models.Regressor(critic_model,
@@ -264,10 +265,10 @@ if __name__ == '__main__':
     exp = utils.ExperienceDataset()
 
     # initialize dynamics optimizer
-    opt1 = torch.optim.Adam(dyn.parameters(), dyn_lr)
+    opt1 = torch.optim.Adam(dyn.parameters(), args.dyn_lr)
 
     # initialize policy optimizer
-    opt2 = torch.optim.Adam(pol.parameters(), pol_lr)
+    opt2 = torch.optim.Adam(pol.parameters(), args.pol_lr)
 
     # initialize critic optimizer
     opt3 = torch.optim.Adam(V.parameters(), 1e-4)
@@ -286,7 +287,7 @@ if __name__ == '__main__':
     atexit.register(on_close)
 
     # initial experience data collection
-    env.seed(seed)
+    env.seed(args.seed)
     rnd = lambda x, t: env.action_space.sample()  # noqa: E731
     while exp.n_samples() < initial_experience:
         ret = utils.apply_controller(
@@ -298,10 +299,11 @@ if __name__ == '__main__':
         exp.save(results_filename)
 
     # policy learning loop
+    expl_pol = lambda x, t: (  # noqa: E 731
+        pol(x) + args.expl_noise * rnd(x, t)).clip(minU, maxU)
     render_fn = (lambda *args, **kwargs: env.render()) if args.render else None
-    update_V_fn = partial(
-        update_value_function, V, opt3, pred_H)
-    for ps_it in range(ps_iters):
+    update_V_fn = partial(update_value_function, V, opt3, args.pred_H)
+    for ps_it in range(args.ps_iters):
         # apply policy
         new_exp = exp.n_samples() + control_H
         while exp.n_samples() < new_exp:
@@ -321,8 +323,8 @@ if __name__ == '__main__':
         dyn.set_dataset(X.to(dyn.X.device, dyn.X.dtype),
                         Y.to(dyn.X.device, dyn.X.dtype))
         utils.train_regressor(dyn,
-                              dyn_opt_iters,
-                              dyn_batch_size,
+                              args.dyn_opt_iters,
+                              args.dyn_batch_size,
                               True,
                               opt1,
                               log_likelihood=dyn.output_density.log_prob,
@@ -331,12 +333,12 @@ if __name__ == '__main__':
                               ps_it)
 
         # sample initial states for policy optimization
-        x0 = exp.sample_states(pol_batch_size,
+        x0 = exp.sample_states(args.pol_batch_size,
                                timestep=0).to(dyn.X.device,
                                               dyn.X.dtype).detach()
 
         if args.plot_level > 0:
-            utils.plot_rollout(x0[:25], dyn, pol, pred_H * 2)
+            utils.plot_rollout(x0[:25], dyn, pol, args.pred_H * 2)
 
         # train policy
         def on_iteration(i, loss, states, actions, rewards, discount):
@@ -347,12 +349,12 @@ if __name__ == '__main__':
         algorithms.mc_pilco(x0,
                             dyn,
                             pol,
-                            pred_H,
+                            args.pred_H,
                             opt2,
                             exp,
-                            pol_opt_iters,
+                            args.pol_opt_iters,
                             value_func=V,
-                            discount=discount_factor,
+                            discount=args.discount_factor,
                             pegasus=True,
                             mm_states=False,
                             mm_rewards=False,
@@ -364,6 +366,6 @@ if __name__ == '__main__':
                             on_iteration=on_iteration,
                             on_rollout=update_V_fn)
         if args.plot_level > 0:
-            utils.plot_rollout(x0[:25], dyn, pol, pred_H * 2)
+            utils.plot_rollout(x0[:25], dyn, pol, args.pred_H * 2)
         writer.add_scalar('robot/evaluation_loss',
                           torch.tensor(ret[2]).sum(), ps_it + 1)
