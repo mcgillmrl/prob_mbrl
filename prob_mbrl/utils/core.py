@@ -165,3 +165,13 @@ def perturb_initial_action(i, states, actions):
 def threshold_linear(x, y0, yend, x0, xend):
     y = (x - x0) * (yend - y0) / (xend - x0) + y0
     return np.maximum(y0, np.minimum(yend, y)).astype(np.int32)
+
+
+def sin_squashing_fn(x):
+    ''' 
+    Periodic squashing function from PILCO. Bounds the output to be between -1 and 1 
+    '''
+    xx = torch.stack([x, 3 * x]).sin()
+    scale = torch.tensor([9.0, 1.0], device=x.device,
+                         dtype=x.dtype)[[None] * x.dim()].transpose(0, -1)
+    return 0.125 * (xx * scale).sum(0)

@@ -8,6 +8,7 @@ from collections import OrderedDict, Iterable
 from functools import partial
 
 from ..utils.angles import to_complex
+from ..utils.core import sin_squashing_fn
 
 
 def mlp(input_dims,
@@ -229,7 +230,7 @@ class Policy(torch.nn.Module):
             u = u + unoise
 
         # saturate output
-        u = self.scale * u.tanh() + self.bias
+        u = self.scale * sin_squashing_fn(u) + self.bias
 
         if return_numpy:
             return u.detach().cpu().numpy()
