@@ -1,5 +1,7 @@
 import numpy as np
 import torch
+import os
+import warnings
 
 from collections import Iterable
 from itertools import chain
@@ -168,10 +170,40 @@ def threshold_linear(x, y0, yend, x0, xend):
 
 
 def sin_squashing_fn(x):
-    ''' 
-    Periodic squashing function from PILCO. Bounds the output to be between -1 and 1 
+    '''
+        Periodic squashing function from PILCO. 
+        Bounds the output to be between -1 and 1 
     '''
     xx = torch.stack([x, 3 * x]).sin()
     scale = torch.tensor([9.0, 1.0], device=x.device,
                          dtype=x.dtype)[[None] * x.dim()].transpose(0, -1)
     return 0.125 * (xx * scale).sum(0)
+
+
+def load_checkpoint(path, dyn, pol, exp, val=None):
+    msg = "Unable to load dynamics model parameters at {}"
+    try:
+        dyn_params = torch.load(os.path.join(path, 'latest_dynamics.pth.tar'))
+        dyn.load(dyn_params)
+    except Exception:
+        warnings.warn(msg.format(path, "latest_dynamics.pth.tar"))
+
+    try:
+        pol_params = torch.load(os.path.join(path, 'latest_policy.pth.tar'))
+        pol.load(pol_params)
+    except Exception:
+        warnings.warn(msg.format(path, "latest_policy.pth.tar"))
+
+    if val is not None:
+        try:
+            val_path = os.path.join(path, 'latest_critic.pth.tar')
+            val_params = torch.load(val_path)
+            val.load(val_params)
+        except Exception:
+            warnings.warn(msg.format(val_path))
+
+    try:
+        exp_path = os.path.join(path, 'experience.pth.tar')
+        exp.load(exp_path)
+    except Exception:
+        warnings.warn(msg.format(exp_path))

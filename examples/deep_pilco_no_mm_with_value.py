@@ -133,9 +133,10 @@ if __name__ == '__main__':
     parser.add_argument('-s', '--seed', type=int, default=1)
     parser.add_argument('--num_threads', type=int, default=1)
     parser.add_argument('--n_initial_epi', type=int, default=0)
+    parser.add_argument('--load_from', type=str, default=None)
     parser.add_argument('--pred_H', type=int, default=15)
     parser.add_argument('--control_H', type=int, default=40)
-    parser.add_argument('--discount_factor', type=float, default=None)
+    parser.add_argument('--discount_factor', type=str, default=None)
 
     parser.add_argument('--dyn_lr', type=float, default=1e-4)
     parser.add_argument('--dyn_opt_iters', type=int, default=2000)
@@ -156,6 +157,13 @@ if __name__ == '__main__':
                         type=lambda s: [int(d) for d in s.split(',')],
                         default=[200, 200])
 
+    parser.add_argument('--val_lr', type=float, default=1e-4)
+    parser.add_argument('--val_drop_rate', type=float, default=0.1)
+    parser.add_argument('--val_batch_size', type=int, default=100)
+    parser.add_argument('--val_shape',
+                        type=lambda s: [int(d) for d in s.split(',')],
+                        default=[200, 200])
+
     parser.add_argument('--plot_level', type=int, default=0)
     parser.add_argument('--render', action='store_true')
     parser.add_argument('--use_cuda', action='store_true')
@@ -166,7 +174,9 @@ if __name__ == '__main__':
 
     # parameters
     args = parser.parse_args()
-    locals().update(args.__dict__)
+    loaded_from = args.load_from
+    if loaded_from is not None:
+        args = torch.load(os.path.join(loaded_from, 'args.pth.tar'))
 
     # initialize environment
     torch.set_num_threads(args.num_threads)
@@ -180,10 +190,17 @@ if __name__ == '__main__':
 
     env_name = env.spec.id if env.spec is not None else env.__class__.__name__
     output_folder = os.path.expanduser(args.output_folder)
-    results_filename = os.path.join(
-        output_folder, "mc_pilco_no_mm_val/{}/experience_{}.pth.tar".format(
-            env_name,
-            datetime.datetime.now().strftime("%Y%m%d%H%M%S.%f")))
+
+    results_folder = os.path.join(
+        output_folder, "mc_pilco_no_mm_wval", env_name,
+        datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S.%f"))
+    try:
+        os.makedirs(results_folder)
+    except OSError:
+        pass
+    results_filename = os.path.join(results_folder, "experience.pth.tar")
+    torch.save(args, os.path.join(results_folder, 'args.pth.tar'))
+
     D = env.observation_space.shape[0]
     U = env.action_space.shape[0]
     maxU = env.action_space.high
@@ -200,9 +217,17 @@ if __name__ == '__main__':
     # intialize to max episode steps if available
     if hasattr(env, 'spec'):
         if hasattr(env.spec, 'max_episode_steps'):
-            control_H = env.spec.max_episode_steps
+            args.control_H = env.spec.max_episode_steps
             args.stop_when_done = True
-    initial_experience = control_H * args.n_initial_epi
+    initial_experience = args.control_H * args.n_initial_epi
+
+    # initialize discount factor
+    if args.discount_factor is not None:
+        if args.discount_factor == 'auto':
+            args.discount_factor = (1.0 / args.control_H)**(1.0 /
+                                                            args.control_H)
+        else:
+            args.discount_factor - float(args.discount_factor)
 
     # initialize dynamics model
     dynE = 2 * (D + 1) if args.learn_reward else 2 * D
@@ -245,11 +270,11 @@ if __name__ == '__main__':
     # initialize value function approximator
     critic_model = models.mlp(D,
                               2,
-                              args.val_hidden,
+                              args.val_shape,
                               dropout_layers=[
-                                  models.modules.CDropout(
-                                      0.25 * np.random.rand(hid), 0.1)
-                                  for hid in args.val_hidden
+                                  models.modules.CDropout(args.val_drop_rate)
+                                  if args.val_drop_rate > 0 else None
+                                  for hid in args.val_shape
                               ],
                               nonlin=torch.nn.Tanh)
     V = models.Regressor(critic_model,
@@ -264,6 +289,9 @@ if __name__ == '__main__':
     # initalize experience dataset
     exp = utils.ExperienceDataset()
 
+    if loaded_from is not None:
+        utils.load_checkpoint(loaded_from, dyn, pol, exp, V)
+
     # initialize dynamics optimizer
     opt1 = torch.optim.Adam(dyn.parameters(), args.dyn_lr)
 
@@ -271,14 +299,14 @@ if __name__ == '__main__':
     opt2 = torch.optim.Adam(pol.parameters(), args.pol_lr)
 
     # initialize critic optimizer
-    opt3 = torch.optim.Adam(V.parameters(), 1e-4)
+    opt3 = torch.optim.Adam(V.parameters(), args.val_lr)
 
     if args.use_cuda and torch.cuda.is_available():
         dyn = dyn.cuda()
         pol = pol.cuda()
 
-    writer = tensorboardX.SummaryWriter(logdir=os.path.join(
-        output_folder, "mc_pilco_no_mm/{}/logs/".format(env_name)))
+    writer = tensorboardX.SummaryWriter(
+        logdir=os.path.join(results_folder, "logs"))
 
     # callbacks
     def on_close():
@@ -293,7 +321,7 @@ if __name__ == '__main__':
         ret = utils.apply_controller(
             env,
             rnd,
-            min(control_H, initial_experience - exp.n_samples() + 1),
+            min(args.control_H, initial_experience - exp.n_samples() + 1),
             stop_when_done=args.stop_when_done)
         exp.append_episode(*ret, policy_params=copy.deepcopy(pol.state_dict()))
         exp.save(results_filename)
@@ -305,11 +333,11 @@ if __name__ == '__main__':
     update_V_fn = partial(update_value_function, V, opt3, args.pred_H)
     for ps_it in range(args.ps_iters):
         # apply policy
-        new_exp = exp.n_samples() + control_H
+        new_exp = exp.n_samples() + args.control_H
         while exp.n_samples() < new_exp:
             ret = utils.apply_controller(env,
-                                         pol,
-                                         min(control_H,
+                                         expl_pol,
+                                         min(args.control_H,
                                              new_exp - exp.n_samples() + 1),
                                          stop_when_done=args.stop_when_done,
                                          callback=render_fn)
@@ -331,6 +359,8 @@ if __name__ == '__main__':
                               summary_writer=writer,
                               summary_scope='model_learning/episode_%d' %
                               ps_it)
+        torch.save(dyn.state_dict(),
+                   os.path.join(results_folder, 'latest_dynamics.pth.tar'))
 
         # sample initial states for policy optimization
         x0 = exp.sample_states(args.pol_batch_size,
@@ -361,10 +391,14 @@ if __name__ == '__main__':
                             maximize=True,
                             clip_grad=args.pol_clip,
                             step_idx_to_sample=None,
-                            init_state_noise=1e-1 * x0.std(0),
+                            init_state_noise=0.0,
                             prioritized_replay=True,
                             on_iteration=on_iteration,
                             on_rollout=update_V_fn)
+        torch.save(pol.state_dict(),
+                   os.path.join(results_folder, 'latest_policy.pth.tar'))
+        torch.save(V.state_dict(),
+                   os.path.join(results_folder, 'latest_critic.pth.tar'))
         if args.plot_level > 0:
             utils.plot_rollout(x0[:25], dyn, pol, args.pred_H * 2)
         writer.add_scalar('robot/evaluation_loss',

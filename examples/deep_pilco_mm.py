@@ -20,9 +20,10 @@ if __name__ == '__main__':
     parser.add_argument('-s', '--seed', type=int, default=1)
     parser.add_argument('--num_threads', type=int, default=1)
     parser.add_argument('--n_initial_epi', type=int, default=0)
+    parser.add_argument('--load_from', type=str, default=None)
     parser.add_argument('--pred_H', type=int, default=25)
     parser.add_argument('--control_H', type=int, default=40)
-    parser.add_argument('--discount_factor', type=float, default=None)
+    parser.add_argument('--discount_factor', type=str, default=None)
 
     parser.add_argument('--dyn_lr', type=float, default=1e-4)
     parser.add_argument('--dyn_opt_iters', type=int, default=2000)
@@ -53,7 +54,9 @@ if __name__ == '__main__':
 
     # parameters
     args = parser.parse_args()
-    locals().update(args.__dict__)
+    loaded_from = args.load_from
+    if loaded_from is not None:
+        args = torch.load(os.path.join(loaded_from, 'args.pth.tar'))
 
     # initialize environment
     torch.set_num_threads(args.num_threads)
@@ -67,10 +70,17 @@ if __name__ == '__main__':
 
     env_name = env.spec.id if env.spec is not None else env.__class__.__name__
     output_folder = os.path.expanduser(args.output_folder)
-    results_filename = os.path.join(
-        output_folder, "mc_pilco_mm/{}/experience_{}.pth.tar".format(
-            env_name,
-            datetime.datetime.now().strftime("%Y%m%d%H%M%S.%f")))
+
+    results_folder = os.path.join(
+        output_folder, "mc_pilco_mm", env_name,
+        datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S.%f"))
+    try:
+        os.makedirs(results_folder)
+    except OSError:
+        pass
+    results_filename = os.path.join(results_folder, "experience.pth.tar")
+    torch.save(args, os.path.join(results_folder, 'args.pth.tar'))
+
     D = env.observation_space.shape[0]
     U = env.action_space.shape[0]
     maxU = env.action_space.high
@@ -87,9 +97,17 @@ if __name__ == '__main__':
     # intialize to max episode steps if available
     if hasattr(env, 'spec'):
         if hasattr(env.spec, 'max_episode_steps'):
-            control_H = env.spec.max_episode_steps
+            args.control_H = env.spec.max_episode_steps
             args.stop_when_done = True
-    initial_experience = control_H * args.n_initial_epi
+    initial_experience = args.control_H * args.n_initial_epi
+
+    # initialize discount factor
+    if args.discount_factor is not None:
+        if args.discount_factor == 'auto':
+            args.discount_factor = (1.0 / args.control_H)**(1.0 /
+                                                            args.control_H)
+        else:
+            args.discount_factor - float(args.discount_factor)
 
     # initialize dynamics model
     dynE = 2 * (D + 1) if args.learn_reward else 2 * D
@@ -128,12 +146,15 @@ if __name__ == '__main__':
                                                  U))
 
     pol = models.Policy(pol_model, maxU, minU).float()
-
+    print('args\n', args)
     print('Dynamics model\n', dyn)
     print('Policy\n', pol)
 
     # initalize experience dataset
     exp = utils.ExperienceDataset()
+
+    if loaded_from is not None:
+        utils.load_checkpoint(loaded_from, dyn, pol, exp)
 
     # initialize dynamics optimizer
     opt1 = torch.optim.Adam(dyn.parameters(), args.dyn_lr)
@@ -145,8 +166,8 @@ if __name__ == '__main__':
         dyn = dyn.cuda()
         pol = pol.cuda()
 
-    writer = tensorboardX.SummaryWriter(logdir=os.path.join(
-        output_folder, "mc_pilco_mm/{}/logs/".format(env_name)))
+    writer = tensorboardX.SummaryWriter(
+        logdir=os.path.join(results_folder, "logs"))
 
     # callbacks
     def on_close():
@@ -161,7 +182,7 @@ if __name__ == '__main__':
         ret = utils.apply_controller(
             env,
             rnd,
-            min(control_H, initial_experience - exp.n_samples() + 1),
+            min(args.control_H, initial_experience - exp.n_samples() + 1),
             stop_when_done=args.stop_when_done)
         exp.append_episode(*ret, policy_params=copy.deepcopy(pol.state_dict()))
         exp.save(results_filename)
@@ -172,11 +193,11 @@ if __name__ == '__main__':
     render_fn = (lambda *args, **kwargs: env.render()) if args.render else None
     for ps_it in range(args.ps_iters):
         # apply policy
-        new_exp = exp.n_samples() + control_H
+        new_exp = exp.n_samples() + args.control_H
         while exp.n_samples() < new_exp:
             ret = utils.apply_controller(env,
                                          expl_pol,
-                                         min(control_H,
+                                         min(args.control_H,
                                              new_exp - exp.n_samples() + 1),
                                          stop_when_done=args.stop_when_done,
                                          callback=render_fn)
@@ -198,6 +219,8 @@ if __name__ == '__main__':
                               summary_writer=writer,
                               summary_scope='model_learning/episode_%d' %
                               ps_it)
+        torch.save(dyn.state_dict(),
+                   os.path.join(results_folder, 'latest_dynamics.pth.tar'))
 
         # sample initial states for policy optimization
         x0 = exp.sample_states(args.pol_batch_size,
@@ -229,6 +252,8 @@ if __name__ == '__main__':
                             step_idx_to_sample=0,
                             init_state_noise=1e-1 * x0.std(0),
                             on_iteration=on_iteration)
+        torch.save(pol.state_dict(),
+                   os.path.join(results_folder, 'latest_policy.pth.tar'))
         if args.plot_level > 0:
             utils.plot_rollout(x0[:25], dyn, pol, args.pred_H * 2)
         writer.add_scalar('robot/evaluation_loss',
