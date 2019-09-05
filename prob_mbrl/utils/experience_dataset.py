@@ -293,7 +293,6 @@ class SumTree:
         self.max_p = max(self.max_p, priority)
 
     def renormalize(self):
-        return
         # update_nf
         nf_change = 1.0 / (self.sum_tree[0])
         self.norm_factor *= nf_change
