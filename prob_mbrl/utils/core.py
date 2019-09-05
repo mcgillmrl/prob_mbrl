@@ -185,6 +185,13 @@ def tile(tensor, n):
         n * tensor.shape[0], -1)
 
 
+def load_csv(s):
+    try:
+        return [int(d) for d in s.split(',')]
+    except Exception:
+        return None
+
+
 def load_checkpoint(path, dyn, pol, exp, val=None):
     msg = "Unable to load dynamics model parameters at {}"
     try:

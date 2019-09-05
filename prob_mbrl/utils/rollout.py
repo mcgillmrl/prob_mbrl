@@ -61,6 +61,7 @@ def rollout(states,
             infer_noise_variables=False,
             z_mm=None,
             z_rr=None,
+            mm_groups=None,
             breaking_condition=None,
             on_step=None,
             on_pol_eval=None,
@@ -86,7 +87,7 @@ def rollout(states,
             z2 = get_z_rnd(z_rr, i, (states.shape[0], 1), states.device)
 
             # noisy state measurement
-            states_ = states + state_noise
+            states_ = states + state_noise.detach()
 
             # evaluate policy
             actions = policy(states_,
@@ -113,14 +114,26 @@ def rollout(states,
                 if jitter1 is None:
                     jitter1 = 1e-12 * torch.eye(states.shape[-1],
                                                 device=states.device)
-                next_states = mm_resample(next_states, z1, jitter1)
+                if mm_groups is not None:
+                    next_states = torch.cat([
+                        mm_resample(nsi, z1i, jitter1) for nsi, z1i in zip(
+                            next_states.chunk(mm_groups), z1.chunk(mm_groups))
+                    ])
+                else:
+                    next_states = mm_resample(next_states, z1, jitter1)
 
             # moment matching for rewards
             if mm_rewards:
                 if jitter2 is None:
                     jitter2 = 1e-12 * torch.eye(rewards.shape[-1],
                                                 device=rewards.device)
-                rewards = mm_resample(rewards, z2, jitter2)
+                if mm_groups is not None:
+                    rewards = torch.cat([
+                        mm_resample(ri, z2i, jitter2) for ri, z2i in zip(
+                            rewards.chunk(mm_groups), z2.chunk(mm_groups))
+                    ])
+                else:
+                    rewards = mm_resample(rewards, z2, jitter2)
 
             # noisy reward measurements
             # rewards = rewards + 0.1 * reward_noise
