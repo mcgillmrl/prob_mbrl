@@ -35,7 +35,8 @@ def mc_pilco(init_states,
              prioritized_replay=False,
              priority_alpha=0.6,
              priority_eps=1e-8,
-             init_priority_beta=0.1,
+             init_priority_beta=0.0,
+             priority_beta_increase=0.0,
              debug=False,
              rollout_kwargs={}):
     global policy_update_counter, x0_tree, episode_counter
