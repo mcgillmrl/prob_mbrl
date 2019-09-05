@@ -8,6 +8,7 @@ from . import angles
 
 class ExperienceDataset(torch.nn.Module):
     ''' Class used to store data from runs with a learning agent'''
+
     def __init__(self, name='Experience'):
         super(ExperienceDataset, self).__init__()
         self.name = name
@@ -277,6 +278,7 @@ class SumTree:
         self.max_p = 1.0
         self.max_count = 0
         self.size = 0
+        self.norm_factor = 1.0
 
     def append(self, data, priority):
         self.data[self.idx] = data
@@ -286,9 +288,17 @@ class SumTree:
         self.size = min(self.size + 1, self.max_size)
 
     def update(self, idx, priority):
-        self.sum_tree[idx] = priority
+        self.sum_tree[idx] = priority * self.norm_factor
         self._update(idx)
         self.max_p = max(self.max_p, priority)
+
+    def renormalize(self):
+        return
+        # update_nf
+        nf_change = 1.0 / (self.sum_tree[0])
+        self.norm_factor *= nf_change
+        # renormalize
+        self.sum_tree *= nf_change
 
     def _update(self, idx):
         while idx != 0:

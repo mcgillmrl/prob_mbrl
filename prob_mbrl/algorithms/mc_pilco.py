@@ -176,9 +176,10 @@ def mc_pilco(init_states,
                                            int(N_particles /
                                                mm_groups)).mean(-1)
                 scores = m_norms.mean(0).detach().cpu().numpy()
-                priorities = (scores + priority_eps)
+                priorities = (scores + priority_eps)**priority_alpha
                 # print(priorities.tolist())
                 [x0_tree.update(idx, p) for idx, p in zip(x0_idxs, priorities)]
+                x0_tree.renormalize()
 
             [
                 actions[i].register_hook(accumulate_priorities)
@@ -226,6 +227,7 @@ def mc_pilco(init_states,
                     for idx in range(episode_counter, exp.n_episodes()):
                         for x in torch.tensor(exp.states[idx]):
                             x0_tree.append(x, x0_tree.max_p)
+                            x0_tree.renormalize()
                     episode_counter = exp.n_episodes()
 
                 if mm_groups is not None:

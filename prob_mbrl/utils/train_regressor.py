@@ -25,6 +25,7 @@ def iterate_minibatches(inputs, targets, batchsize):
 def iterate_priority_tree(inputs, targets, batchsize, tree, warmup_iters=100):
     if len(inputs) > tree.size:
         [tree.append(i, tree.max_p) for i in range(tree.size, len(inputs))]
+        tree.renormalize()
 
     iter_ = iterate_minibatches(inputs, targets, batchsize)
     beta = 0.4
@@ -115,7 +116,7 @@ def train_regressor(model,
             idxs, weights = batch[2:]
             weights = torch.tensor(np.stack(weights)).to(X.device, X.dtype)
             tree = priority_tree[model]
-            #priorities = (2 - log_probs.clamp(-1, 2).detach().cpu().numpy() +
+            # priorities = (2 - log_probs.clamp(-1, 2).detach().cpu().numpy() +
             #              priority_eps)**priority_alpha
             a = 2
             p0 = 1 + (a - log_probs.flatten().clamp(
@@ -124,6 +125,7 @@ def train_regressor(model,
                           (tree.counts[idxs - tree.max_size + 1]) +
                           priority_eps)**priority_alpha
             [tree.update(idx, p) for idx, p in zip(idxs, priorities)]
+            tree.renormalize()
             log_probs = log_probs * weights
 
         Enlml = -log_probs.mean()
