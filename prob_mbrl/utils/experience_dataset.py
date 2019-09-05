@@ -8,7 +8,6 @@ from . import angles
 
 class ExperienceDataset(torch.nn.Module):
     ''' Class used to store data from runs with a learning agent'''
-
     def __init__(self, name='Experience'):
         super(ExperienceDataset, self).__init__()
         self.name = name
@@ -276,6 +275,7 @@ class SumTree:
         self.counts = np.zeros(max_size)
         self.idx = 0
         self.max_p = 1.0
+        self.max_count = 0
         self.size = 0
 
     def append(self, data, priority):
@@ -316,14 +316,42 @@ class SumTree:
         idx = self._retrieve(0, priority)
         return [idx, self.sum_tree[idx], self.data[idx - self.max_size + 1]]
 
+    def _retrieve_batch(self, idx, priority):
+        N_nodes = len(self.sum_tree)
+        left = 2 * idx + 1
+        priority = priority.copy()
+        in_bounds = left < N_nodes
+        while any(in_bounds):
+            left_val = self.sum_tree[left]
+            left_cond = priority <= left_val
+            right_cond = np.logical_not(left_cond)
+            idx = np.where(left_cond, left, left + 1)
+            priority = np.where(right_cond, priority - left_val, priority)
+            left = 2 * idx + 1
+            in_bounds = left < N_nodes
+            left = np.where(in_bounds, left, idx)
+        return idx
+
+    def get_batch(self, priority):
+        priority = np.atleast_1d(priority)
+        idxs = self._retrieve_batch(np.zeros(len(priority), dtype=np.int64),
+                                    priority)
+        data_idxs = idxs - self.max_size + 1
+        return idxs, self.sum_tree[idxs], [self.data[idx] for idx in data_idxs]
+
     def sample(self, batchsize, beta=1.0):
         sum_p = self.sum_tree[0]
         segment_length = sum_p / batchsize
         priorities = (np.arange(batchsize) +
                       np.random.rand(batchsize)) * segment_length
-        idxs, priorities, samples = zip(*[self.get(p) for p in priorities])
-        idxs = np.array(idxs)
+        if batchsize < 32:
+            idxs, priorities, samples = zip(*[self.get(p) for p in priorities])
+            idxs = np.array(idxs)
+        else:
+            idxs, priorities, samples = self.get_batch(priorities)
         self.counts[idxs - self.max_size + 1] += 1
+        self.max_count = max(self.max_count,
+                             self.counts[idxs - self.max_size + 1].max())
         probs = np.array(priorities) / sum_p
         weights = (self.size * probs)**-beta
         weights = weights / weights.max()

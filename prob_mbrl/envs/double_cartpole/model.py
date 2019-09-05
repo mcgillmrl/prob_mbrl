@@ -29,7 +29,6 @@ class DoubleCartpoleModel(DynamicsModel):
         action: [F]
         theta: 0 is pointing up and increasing clockwise.
     """
-
     def __init__(self,
                  dt=0.05,
                  mc=0.5,
@@ -60,7 +59,6 @@ class DoubleCartpoleModel(DynamicsModel):
         self.l2 = Parameter(torch.tensor(l2), requires_grad=False)
         self.mu = Parameter(torch.tensor(mu), requires_grad=False)
         self.g = Parameter(torch.tensor(g), requires_grad=False)
-        self.float()
 
     @classproperty
     def action_size(cls):

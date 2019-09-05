@@ -15,7 +15,7 @@ if __name__ == '__main__':
     H = 40
     N_particles = 100
     dyn_components = 1
-    dyn_hidden = [200] * 2
+    dyn_shape = [200] * 2
     use_cuda = True
     learn_reward = False
 
@@ -42,7 +42,7 @@ if __name__ == '__main__':
                                      maxU,
                                      reward_func=reward_func,
                                      dyn_components=dyn_components,
-                                     dyn_hidden=dyn_hidden)
+                                     dyn_shape=dyn_shape)
 
     # initalize experience dataset
     exp = utils.ExperienceDataset()
@@ -62,8 +62,8 @@ if __name__ == '__main__':
     pol = agent
     for it in range(100 + n_rnd):
         if it < n_rnd:
-            pol_ = (lambda x, t: maxU * (2 * np.random.rand(U, ) - 1)
-                    )  # noqa: E731
+            pol_ = (lambda x, t: maxU *
+                    (2 * np.random.rand(U, ) - 1))  # noqa: E731
         else:
             pol_ = pol
 

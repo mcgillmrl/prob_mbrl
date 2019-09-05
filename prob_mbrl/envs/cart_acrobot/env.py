@@ -85,8 +85,7 @@ class CartAcrobotReward(torch.nn.Module):
                       (u.mm(self.R) * u).sum(-1, keepdim=True))
         # reward is negative cost.
         # optimizing the exponential of the negative cost
-        # clamping for numerical stability
-        reward = (-(cost.clamp(0, 25))).exp()
+        reward = (-cost).exp()
         return reward
 
 

@@ -8,6 +8,7 @@ from collections import OrderedDict, Iterable
 from functools import partial
 
 from ..utils.angles import to_complex
+from ..utils.core import sin_squashing_fn
 
 
 def mlp(input_dims,
@@ -18,6 +19,8 @@ def mlp(input_dims,
         weights_initializer=partial(torch.nn.init.xavier_normal_,
                                     gain=torch.nn.init.calculate_gain('relu')),
         biases_initializer=partial(torch.nn.init.uniform_, a=-0.1, b=0.1),
+        hidden_biases=True,
+        output_biases=True,
         dropout_layers=BDropout,
         input_dropout=None,
         spectral_norm=False,
@@ -42,7 +45,7 @@ def mlp(input_dims,
         if inspect.isclass(drop_i):
             drop_i = drop_i(name='drop%d' % i)
         # fully connected layer
-        fc = torch.nn.Linear(din, dout)
+        fc = torch.nn.Linear(din, dout, bias=hidden_biases)
         if spectral_norm:
             fc = SpectralNorm(fc)
         modules['fc%d' % i] = fc
@@ -55,7 +58,7 @@ def mlp(input_dims,
             modules['drop%d' % i] = drop_i
 
     # project to output dimensions
-    fc_out = torch.nn.Linear(dims[-1], output_dims)
+    fc_out = torch.nn.Linear(dims[-1], output_dims, bias=output_biases)
     if spectral_norm_output:
         fc_out = SpectralNorm(fc_out)
     modules['fc_out'] = fc_out
@@ -67,20 +70,25 @@ def mlp(input_dims,
     net = BSequential(modules)
 
     # initialize weights
-    if callable(weights_initializer):
+    def reset_fn():
+        if callable(weights_initializer):
 
-        def fn(module):
-            if hasattr(module, 'weight'):
-                weights_initializer(module.weight)
+            def fn(module):
+                if hasattr(module, 'weight'):
+                    weights_initializer(module.weight)
 
-        net.apply(fn)
-    if callable(biases_initializer):
+            net.apply(fn)
+        if callable(biases_initializer):
 
-        def fn(module):
-            if hasattr(module, 'bias') and module.bias is not None:
-                biases_initializer(module.bias)
+            def fn(module):
+                if hasattr(module, 'bias') and module.bias is not None:
+                    biases_initializer(module.bias)
 
-        net.apply(fn)
+            net.apply(fn)
+
+    reset_fn()
+    net.float()
+
     return net
 
 
@@ -125,16 +133,23 @@ class Regressor(torch.nn.Module):
             self.X.data = X
         self.Y.data = Y
         self.mx.data = self.X.mean(0, keepdim=True)
-        self.Sx.data = 1.1 * self.X.std(0, keepdim=True)
+        self.Sx.data = self.X.std(0, keepdim=True)
         self.Sx.data[self.Sx == 0] = 1.0
         self.iSx.data = self.Sx.reciprocal()
         self.my.data = self.Y.mean(0, keepdim=True)
-        self.Sy.data = 1.1 * self.Y.std(0, keepdim=True)
+        self.Sy.data = self.Y.std(0, keepdim=True)
         self.Sy.data[self.Sy == 0] = 1.0
         self.iSy.data = self.Sy.reciprocal()
         if N_ensemble > 1:
             self.masks.data = torch.bernoulli(
                 p * torch.ones(X.shape[0], N_ensemble))
+
+    def load(self, state_dict):
+        params = dict(self.named_parameters())
+        params.update(self.named_buffers())
+        for k, v in state_dict.items():
+            if k in params:
+                params[k].data = v.data.clone()
 
     def regularization_loss(self):
         return self.model.regularization_loss()
@@ -176,8 +191,8 @@ class Policy(torch.nn.Module):
         self.register_buffer('angle_dims', torch.tensor(angle_dims).long())
         if minU is None:
             minU = -maxU
-        scale = maxU - minU
-        bias = minU
+        scale = 0.5 * (maxU - minU)
+        bias = 0.5 * (maxU + minU)
         self.register_buffer('scale', torch.tensor(scale).squeeze())
         self.register_buffer('bias', torch.tensor(bias).squeeze())
 
@@ -186,6 +201,13 @@ class Policy(torch.nn.Module):
 
     def resample(self, *args, **kwargs):
         self.model.resample(*args, **kwargs)
+
+    def load(self, state_dict):
+        params = dict(self.named_parameters())
+        params.update(self.named_buffers())
+        for k, v in state_dict.items():
+            if k in params:
+                params[k].data = v.data.clone()
 
     def forward(self, x, **kwargs):
         return_numpy = isinstance(x, np.ndarray)
@@ -208,7 +230,7 @@ class Policy(torch.nn.Module):
             u = u + unoise
 
         # saturate output
-        u = self.scale * u.sigmoid() + self.bias
+        u = self.scale * sin_squashing_fn(u) + self.bias
 
         if return_numpy:
             return u.detach().cpu().numpy()

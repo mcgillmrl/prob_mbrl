@@ -16,14 +16,13 @@ from prob_mbrl import models, losses, utils
 
 
 class Actor(models.Policy):
-    def __init__(self, state_dim, action_dim, max_action,
-                 pol_hidden=[200] * 2):
+    def __init__(self, state_dim, action_dim, max_action, pol_shape=[200] * 2):
         pol_model = models.mlp(
             state_dim,
             action_dim,
-            pol_hidden,
+            pol_shape,
             dropout_layers=[
-                models.modules.BDropout(0.1) for i in range(len(pol_hidden))
+                models.modules.BDropout(0.1) for i in range(len(pol_shape))
             ],
             nonlin=torch.nn.ReLU,
             weights_initializer=torch.nn.init.xavier_normal_,
@@ -65,7 +64,7 @@ class DynModel(models.DynamicsModel):
                  action_dim,
                  reward_func=None,
                  dyn_components=1,
-                 dyn_hidden=[200] * 2):
+                 dyn_shape=[200] * 2):
         self.learn_reward = reward_func is None
         dynE = 2 * (state_dim + 1) if self.learn_reward else 2 * state_dim
         if dyn_components > 1:
@@ -79,10 +78,10 @@ class DynModel(models.DynamicsModel):
 
         dyn_model = models.mlp(state_dim + action_dim,
                                dynE,
-                               dyn_hidden,
+                               dyn_shape,
                                dropout_layers=[
                                    models.modules.CDropout(0.5, 0.1)
-                                   for i in range(len(dyn_hidden))
+                                   for i in range(len(dyn_shape))
                                ],
                                nonlin=torch.nn.ReLU)
         super(DynModel, self).__init__(dyn_model,

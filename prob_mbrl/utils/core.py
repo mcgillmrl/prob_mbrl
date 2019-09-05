@@ -1,5 +1,7 @@
 import numpy as np
 import torch
+import os
+import warnings
 
 from collections import Iterable
 from itertools import chain
@@ -143,3 +145,65 @@ def batch_jacobian(f, x, out_dims=None):
                                allow_unused=True,
                                retain_graph=True)
     return dydx
+
+
+def polyak_averaging(current, target, tau=0.005):
+    for param, target_param in zip(current.parameters(), target.parameters()):
+        target_param.data.copy_(tau * param.data +
+                                (1 - tau) * target_param.data)
+
+
+def perturb_initial_action(i, states, actions):
+    if i == 0:
+        actions = actions + 1e-1 * (torch.randint(0,
+                                                  2,
+                                                  actions.shape[0:],
+                                                  device=actions.device,
+                                                  dtype=actions.dtype) *
+                                    actions.std(0)).detach()
+    return states, actions
+
+
+def threshold_linear(x, y0, yend, x0, xend):
+    y = (x - x0) * (yend - y0) / (xend - x0) + y0
+    return np.maximum(y0, np.minimum(yend, y)).astype(np.int32)
+
+
+def sin_squashing_fn(x):
+    '''
+        Periodic squashing function from PILCO. 
+        Bounds the output to be between -1 and 1 
+    '''
+    xx = torch.stack([x, 3 * x]).sin()
+    scale = torch.tensor([9.0, 1.0], device=x.device,
+                         dtype=x.dtype)[[None] * x.dim()].transpose(0, -1)
+    return 0.125 * (xx * scale).sum(0)
+
+
+def load_checkpoint(path, dyn, pol, exp, val=None):
+    msg = "Unable to load dynamics model parameters at {}"
+    try:
+        dyn_params = torch.load(os.path.join(path, 'latest_dynamics.pth.tar'))
+        dyn.load(dyn_params)
+    except Exception:
+        warnings.warn(msg.format(path, "latest_dynamics.pth.tar"))
+
+    try:
+        pol_params = torch.load(os.path.join(path, 'latest_policy.pth.tar'))
+        pol.load(pol_params)
+    except Exception:
+        warnings.warn(msg.format(path, "latest_policy.pth.tar"))
+
+    if val is not None:
+        try:
+            val_path = os.path.join(path, 'latest_critic.pth.tar')
+            val_params = torch.load(val_path)
+            val.load(val_params)
+        except Exception:
+            warnings.warn(msg.format(val_path))
+
+    try:
+        exp_path = os.path.join(path, 'experience.pth.tar')
+        exp.load(exp_path)
+    except Exception:
+        warnings.warn(msg.format(exp_path))

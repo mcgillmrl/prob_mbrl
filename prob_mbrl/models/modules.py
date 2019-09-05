@@ -17,22 +17,21 @@ class BDropout(StochasticModule):
         Extends the base Dropout layer by adding a regularizer as derived by
         Gal and Ghahrahmani "Dropout as a Bayesian Approximation" (2015)
     """
-
     def __init__(self, rate=0.5, name=None, regularizer_scale=1.0, **kwargs):
         super(BDropout, self).__init__(**kwargs)
         self.name = name
         self.register_buffer('regularizer_scale',
                              torch.tensor(0.5 * regularizer_scale))
         self.register_buffer('rate', torch.tensor(rate))
-        self.p = 1 - self.rate
+        self.register_buffer('p', 1 - self.rate)
         self.register_buffer('noise', torch.bernoulli(self.p))
 
     def weights_regularizer(self, weights):
         self.p = 1 - self.rate
-        return self.regularizer_scale * ((weights**2).sum(0) / self.p).sum()
+        return self.regularizer_scale * (self.p * (weights**2).sum(0)).sum()
 
     def biases_regularizer(self, biases):
-        return self.regularizer_scale * ((biases**2).sum(0) / self.p**2).sum()
+        return self.regularizer_scale * ((biases**2).sum(0)).sum()
 
     def resample(self, seed=None):
         self.update_noise(self.noise, seed)
@@ -61,8 +60,13 @@ class BDropout(StochasticModule):
         return (x * self.noise[..., :x.shape[-mask_dims], :].detach()) / self.p
 
     def extra_repr(self):
-        return 'rate={}, regularizer_scale={}'.format(self.rate,
-                                                      self.regularizer_scale)
+        if self.rate.dim() >= 1 and len(self.rate) > 1:
+            desc = 'rate=[mean: {}, min: {}, max: {}], regularizer_scale={}'
+            return desc.format(self.rate.mean(), self.rate.min(),
+                               self.rate.max(), self.regularizer_scale)
+        else:
+            return 'rate={}, regularizer_scale={}'.format(
+                self.rate, self.regularizer_scale)
 
 
 class CDropout(BDropout):
@@ -81,9 +85,8 @@ class CDropout(BDropout):
         self.register_buffer('concrete_noise', torch.bernoulli(self.p))
 
     def weights_regularizer(self, weights):
-        # logit_p = torch.nn.functional.softplus(self.logit_p, 50)
         p = self.p
-        reg = self.regularizer_scale * ((weights**2).sum(0) / p)
+        reg = self.regularizer_scale * (p * (weights**2).sum(0))
         reg += self.dropout_regularizer * (p * p.log() + (1 - p) *
                                            (1 - p).log())
         return reg.sum()
@@ -103,9 +106,11 @@ class CDropout(BDropout):
         """
         noise_p = noise + 1e-7
         noise_m = noise - 1e-7
-        #logit_p = torch.nn.functional.softplus(self.logit_p, 50)
+
         concrete_p = self.logit_p + (noise_p / (1 - noise_m)).log()
-        probs = (concrete_p / self.temp + 1e-9).sigmoid()
+        probs = (concrete_p / self.temp).sigmoid()
+        #print(self.logit_p)
+        #print(concrete_p, noise)
         noise = torch.bernoulli(probs)
         # forward pass uses bernoulli sampled noise, but backwards
         # through concrete distribution
@@ -146,20 +151,24 @@ class CDropout(BDropout):
         if self.training:
             self.update_concrete_noise(noise)
             concrete_noise = self.concrete_noise
-            p = self.p
         else:
             if resampled:
                 self.update_concrete_noise(noise)
             # We never need these gradients in evaluation mode.
             concrete_noise = self.concrete_noise.detach()
-            p = self.p.detach()
 
-        return (x * concrete_noise[..., :x.shape[-mask_dims], :]) / p
+        return x * concrete_noise[..., :x.shape[-mask_dims], :]
 
     def extra_repr(self):
-        #logit_p = torch.nn.functional.softplus(self.logit_p, 50)
-        return 'rate={}, temperature={}, regularizer_scale={}'.format(
-            1 - self.logit_p.sigmoid(), self.temp, self.regularizer_scale)
+        self.rate = 1 - self.logit_p.sigmoid().detach()
+        if self.rate.dim() >= 1 and len(self.rate) > 1:
+            desc = 'rate=[mean: {}, min: {}, max: {}], regularizer_scale={}'
+            return desc.format(self.rate.mean(), self.rate.min(),
+                               self.rate.max(), self.temp,
+                               self.regularizer_scale)
+        else:
+            return 'rate={}, temperature={}, regularizer_scale={}'.format(
+                1 - self.logit_p.sigmoid(), self.temp, self.regularizer_scale)
 
 
 class TLNDropout(BDropout):
@@ -360,7 +369,6 @@ class SpectralNorm(torch.nn.Module):
         W_sn = W/sigma(W), where sigma(W) is the largest eigenvalue
         of W
     """
-
     def __init__(self,
                  module,
                  power_iterations=1,
