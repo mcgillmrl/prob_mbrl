@@ -186,8 +186,9 @@ if __name__ == '__main__':
             rnd,
             min(args.control_H, initial_experience - exp.n_samples() + 1),
             stop_when_done=args.stop_when_done)
-        exp.append_episode(*ret, policy_params=copy.deepcopy(pol.state_dict()))
-        exp.save(results_filename)
+        exp.append_episode(*ret, policy_params=[])
+    exp.policy_parameters[-1] = copy.deepcopy(pol.state_dict())
+    exp.save(results_filename)
 
     # policy learning loop
     expl_pol = lambda x, t: (  # noqa: E 731
@@ -203,9 +204,9 @@ if __name__ == '__main__':
                                              new_exp - exp.n_samples() + 1),
                                          stop_when_done=args.stop_when_done,
                                          callback=render_fn)
-            exp.append_episode(*ret,
-                               policy_params=copy.deepcopy(pol.state_dict()))
-            exp.save(results_filename)
+            exp.append_episode(*ret, policy_params=[])
+        exp.policy_parameters[-1] = copy.deepcopy(pol.state_dict())
+        exp.save(results_filename)
 
         # train dynamics
         X, Y = exp.get_dynmodel_dataset(deltas=True,
