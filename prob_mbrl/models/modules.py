@@ -2,6 +2,7 @@ import torch
 
 from torch import nn
 from torch.nn import Parameter
+from math import pi, e
 
 jit_scripts = {}
 
@@ -166,24 +167,132 @@ class TLNDropout(BDropout):
         'Implements truncated log-normal dropout (NIPS 2017)
     '''
 
-    def __init__(self, interval=[-10, 0]):
-        self.register_buffer('interval', torch.tensor(interval))
-        self.logit_posterior_mean = Parameter(
-            -torch.log(1.0 / torch.tensor(1 - self.rate) - 1.0))
-        # self.logit_posterior_std = logit_posterior_std
+    def __init__(self, in_dim, 
+                rate=0.5,
+                 name=None,
+                 regularizer_scale=1.0, 
+         interval=[-10, 0], **kwargs,):
+        super(TLNDropout, self).__init__(rate, name, regularizer_scale, **kwargs)
 
+        self.register_buffer('a', torch.tensor(interval[0]).float())
+        self.register_buffer('b', torch.tensor(interval[1]).float())
+
+        #scaling terms for the bounded sigma range
+        uniform_std = torch.sqrt(torch.pow(self.b - self.a, 2) / 12.0 )
+        self.register_buffer('s_max', uniform_std)
+        self.register_buffer('s_min', torch.tensor(1e-2))
+
+        a = self.a
+        b = self.b
+        mu0 = max(a + 1e-2*(b-a), 0) + min(b - 1e-2*(b-a), 0)
+        logit_u0 = -torch.log((b-a)/(mu0 - a) - 1)
+
+        #to be exaaactly like them, I think this has to be one number..
+        self.logit_mu = Parameter(torch.ones([1, in_dim]) * logit_u0)
+        #not 100% but pretty sure they sample all of them...
+        self.logit_sig = Parameter(torch.ones([1, in_dim]).uniform_(-3.0, -1.0))
+        
+        self.register_buffer('unit_mu', torch.zeros_like(self.logit_mu)) 
+        self.register_buffer('unit_sig', torch.ones_like(self.logit_sig))
+
+    def pdf(self, x):
+        #littl phi in paper
+        #probability density function of unit normal
+        return torch.exp(-0.5 * torch.pow(x, 2.)) / torch.sqrt(torch.tensor(2. * pi))
+    
+    def cdf(self, x):
+        #Big phi in paper
+        #cumulative density function of unit normal
+        return 0.5 * (torch.erfc(-x / torch.sqrt(torch.tensor(2.))))
+    
+    def inv_cdf(self, y):
+        #pytorch doesn't have a convenient erfcinv function like theano
+        unit_normal = torch.distributions.Normal(self.unit_mu, self.unit_sig)
+        return unit_normal.icdf(y)
+        
     def weights_regularizer(self, weights):
         '''
         In this case the weights regularizer is actually independent of the
         weights (only depends on the alpha parameter)
         '''
-        return 0
+        _, sig, beta, alpha, Z = self.get_parameters()
+        
+        #calculations for kl term below
+        
+        term1 = torch.log( self.b - self.a) - torch.log(torch.sqrt(torch.tensor(2. * pi * e)) * sig )
+        
+        #TODO: the / sig in dense_diff is from kusanagi code base...not in paper from what I can tell 
+        dense_diff = (alpha * self.pdf(alpha)  - beta * self.pdf(beta)) / sig
+        
+        #term 2 and 3 calculations
+        term2 = torch.log(Z)
+        term3 = dense_diff / (2 * Z)
+        
+        kl = (term1 - term2 - term3).sum() # is mean in original paper's code base,
 
-    def update_noise(self, x):
-        pass
+        return kl * self.regularizer_scale
 
-    def forward(self, x):
-        pass
+    def update_noise(self, x, seed=None):
+        if seed is not None:
+            torch.manual_seed(seed)
+        self.noise.data = torch.rand_like(x)
+        
+        if not self.training:
+            self.update_truncated_lognormal_noise(self.noise)
+            
+    def get_parameters(self): 
+        sig = (self.s_max -  self.s_min) * torch.sigmoid(self.logit_sig) + self.s_min
+        mu =  (self.b - self.a) * torch.sigmoid(self.logit_mu) + self.a
+        
+        #values used in all terms
+        beta = (self.b - mu) / sig
+        alpha = (self.a - mu) / sig
+        Z = self.cdf(beta) - self.cdf(alpha)
+        
+        return mu, sig, beta, alpha, Z
+
+    def update_truncated_lognormal_noise(self, noise):
+        #input: noise: the actual dimensions of noise to be applied
+        mu, sig, _, alpha, Z  = self.get_parameters()
+
+        gamma = self.cdf(alpha) + Z * noise
+        
+        self.tln_noise = torch.exp(mu + sig * self.inv_cdf(torch.clamp(gamma, min=1e-5, max=1-1e-5)))
+        return self.tln_noise 
+        
+    def forward(self, x, resample=False, mask_dims=2, seed=None, **kwargs):
+        sample_shape = x.shape[-mask_dims:]
+        noise = self.noise
+        resampled = False
+        if resample:
+            if seed is not None:
+                torch.manual_seed(seed)
+            noise = torch.rand_like(x)
+            resampled = True
+        elif (sample_shape[1:] != self.noise.shape[1:]
+              or sample_shape[1:] != self.tln_noise.shape[1:]
+              or sample_shape[0] > self.tln_noise.shape[0]):
+            # resample if we can't re-use old numbers
+            # this happens when the incoming batch size is bigger than
+            # the noise batch size, or when the rest of the shape differs
+            sample = x.view(-1, *sample_shape)[0]
+            self.update_noise(sample, seed)
+            noise = self.noise
+            resampled = True
+
+        if self.training:
+            self.update_truncated_lognormal_noise(noise)
+            tln_noise = self.tln_noise
+            p = self.p
+        else:
+            if resampled:
+                self.update_truncated_lognormal_noise(noise)
+            # We never need these gradients in evaluation mode.
+            tln_noise = self.tln_noise.detach()
+            p = self.p.detach()
+
+        return x * tln_noise[..., :x.shape[-mask_dims], :]  
+
 
 
 class BSequential(nn.modules.Sequential):
