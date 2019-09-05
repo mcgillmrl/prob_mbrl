@@ -91,6 +91,8 @@ class CDropout(BDropout):
         if seed is not None:
             torch.manual_seed(seed)
         self.noise.data = torch.rand_like(x)
+        if not self.training:
+            self.update_concrete_noise(self.noise)
 
     def update_concrete_noise(self, noise):
         """Updates the concrete dropout masks.
