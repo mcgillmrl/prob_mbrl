@@ -230,7 +230,7 @@ class Policy(torch.nn.Module):
             u = u + unoise
 
         # saturate output
-        u = self.scale * sin_squashing_fn(u) + self.bias
+        u = self.scale * sin_squashing_fn(u / 6.0) + self.bias
 
         if return_numpy:
             return u.detach().cpu().numpy()
