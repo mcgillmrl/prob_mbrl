@@ -256,7 +256,8 @@ if __name__ == '__main__':
                             step_idx_to_sample=args.timesteps_to_sample,
                             init_state_noise=1e-1 * x0.std(0),
                             prioritized_replay=args.prioritized_replay,
-                            on_iteration=on_iteration)
+                            on_iteration=on_iteration,
+                            debug=args.debug)
         torch.save(pol.state_dict(),
                    os.path.join(results_folder, 'latest_policy.pth.tar'))
         if args.plot_level > 0:

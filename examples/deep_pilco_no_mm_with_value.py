@@ -162,9 +162,7 @@ if __name__ == '__main__':
     parser.add_argument('--val_lr', type=float, default=1e-4)
     parser.add_argument('--val_drop_rate', type=float, default=0.1)
     parser.add_argument('--val_batch_size', type=int, default=100)
-    parser.add_argument('--val_shape',
-                        type=utils.load_csv,
-                        default=[200, 200])
+    parser.add_argument('--val_shape', type=utils.load_csv, default=[200, 200])
 
     parser.add_argument('--plot_level', type=int, default=0)
     parser.add_argument('--render', action='store_true')
@@ -398,7 +396,8 @@ if __name__ == '__main__':
                             init_state_noise=1e-1 * x0.std(0),
                             prioritized_replay=args.prioritized_replay,
                             on_iteration=on_iteration,
-                            on_rollout=update_V_fn)
+                            on_rollout=update_V_fn,
+                            debug=args.debug)
         torch.save(pol.state_dict(),
                    os.path.join(results_folder, 'latest_policy.pth.tar'))
         torch.save(V.state_dict(),
