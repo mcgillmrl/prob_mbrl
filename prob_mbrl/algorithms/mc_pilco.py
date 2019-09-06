@@ -81,6 +81,7 @@ def mc_pilco(init_states,
         x0_idxs = None
         x0_weights = torch.ones_like(x0)
         priority_beta = init_priority_beta
+        old_counts = x0_tree.counts.copy()
 
     for i in pbar:
         # zero gradients
@@ -238,10 +239,12 @@ def mc_pilco(init_states,
                     x0, x0_idxs, x0_weights = x0_tree.sample(
                         N_particles, beta=priority_beta)
 
-                priority_beta = max(1.0, priority_beta + 1.0 / opt_iters)
+                priority_beta = max(1.0,
+                                    priority_beta + priority_beta_increase)
                 x0 = torch.stack(x0).to(dynamics.X.device, dynamics.X.dtype)
                 x0_weights = torch.tensor(np.stack(x0_weights)).to(
                     x0.device, x0.dtype)
+                # print((x0_tree.counts == 1).sum(), x0_tree.counts.max())
                 x0.requires_grad_(True)
             else:
                 if mm_groups is not None:
@@ -270,7 +273,6 @@ class MCPILCOAgent(torch.nn.Module):
     '''
     Utility class for instantiating an MCPILCO learning agent
     '''
-
     def __init__(self,
                  policy,
                  dynamics,
@@ -449,7 +451,6 @@ class MCPILCOAgent(torch.nn.Module):
     def fit_dynamics(self):
         '''
         '''
-
     def forward(self, x):
         '''
         Calling the agent is equivalent to evaluating its policy

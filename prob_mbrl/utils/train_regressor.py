@@ -33,6 +33,7 @@ def iterate_priority_tree(inputs, targets, batchsize, tree, warmup_iters=100):
     for i in range(warmup_iters):
         x, y, idxs = next(iter_)
         tree.counts[idxs] += 1
+        tree.max_count = max(tree.max_count, tree.counts[idxs].max())
         idxs = idxs + tree.max_size - 1
         yield x, y, idxs, torch.ones(x.shape[0], 1)
 
