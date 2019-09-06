@@ -8,7 +8,6 @@ from . import angles
 
 class ExperienceDataset(torch.nn.Module):
     ''' Class used to store data from runs with a learning agent'''
-
     def __init__(self, name='Experience'):
         super(ExperienceDataset, self).__init__()
         self.name = name
@@ -282,7 +281,7 @@ class SumTree:
 
     def append(self, data, priority):
         self.data[self.idx] = data
-        self.counts[self.idx] = 0
+        self.counts[self.idx] = 1
         self.update(self.idx + self.max_size - 1, priority)
         self.idx = (self.idx + 1) % self.max_size
         self.size = min(self.size + 1, self.max_size)
