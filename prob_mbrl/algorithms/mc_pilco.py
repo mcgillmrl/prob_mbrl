@@ -177,7 +177,8 @@ def mc_pilco(init_states,
                     m_norms = m_norms.view(-1, mm_groups,
                                            int(N_particles /
                                                mm_groups)).mean(-1)
-                scores = m_norms.mean(0).detach().cpu().numpy()
+                scores = m_norms.mean(0).detach().cpu().numpy(
+                ) / x0_tree.counts[x0_idxs - x0_tree.max_size + 1]
                 priorities = (scores + priority_eps)**priority_alpha
                 # print(priorities.tolist())
                 [x0_tree.update(idx, p) for idx, p in zip(x0_idxs, priorities)]
@@ -273,6 +274,7 @@ class MCPILCOAgent(torch.nn.Module):
     '''
     Utility class for instantiating an MCPILCO learning agent
     '''
+
     def __init__(self,
                  policy,
                  dynamics,
@@ -451,6 +453,7 @@ class MCPILCOAgent(torch.nn.Module):
     def fit_dynamics(self):
         '''
         '''
+
     def forward(self, x):
         '''
         Calling the agent is equivalent to evaluating its policy

@@ -106,10 +106,10 @@ if __name__ == '__main__':
     # initialize discount factor
     if args.discount_factor is not None:
         if args.discount_factor == 'auto':
-            args.discount_factor = (1.0 / args.control_H)**(1.0 /
+            args.discount_factor = (1.0 / args.control_H)**(2.0 /
                                                             args.control_H)
         else:
-            args.discount_factor - float(args.discount_factor)
+            args.discount_factor = float(args.discount_factor)
 
     # initialize dynamics model
     dynE = 2 * (D + 1) if args.learn_reward else 2 * D
