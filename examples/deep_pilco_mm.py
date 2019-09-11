@@ -221,6 +221,7 @@ if __name__ == '__main__':
                               True,
                               opt1,
                               log_likelihood=dyn.output_density.log_prob,
+                              prioritized_sampling=args.prioritized_replay,
                               summary_writer=writer,
                               summary_scope='model_learning/episode_%d' %
                               ps_it)
