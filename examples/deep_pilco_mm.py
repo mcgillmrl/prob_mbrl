@@ -64,6 +64,7 @@ if __name__ == '__main__':
     torch.set_num_threads(args.num_threads)
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
+    torch.set_flush_denormal(True)
     if args.env in envs.__all__:
         env = envs.__dict__[args.env]()
     else:
@@ -187,7 +188,8 @@ if __name__ == '__main__':
             min(args.control_H, initial_experience - exp.n_samples() + 1),
             stop_when_done=args.stop_when_done)
         exp.append_episode(*ret, policy_params=[])
-    exp.policy_parameters[-1] = copy.deepcopy(pol.state_dict())
+    if initial_experience > 0:
+        exp.policy_parameters[-1] = copy.deepcopy(pol.state_dict())
     exp.save(results_filename)
 
     # policy learning loop

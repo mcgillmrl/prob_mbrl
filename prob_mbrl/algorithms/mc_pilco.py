@@ -35,7 +35,7 @@ def mc_pilco(init_states,
              prioritized_replay=False,
              priority_alpha=0.6,
              priority_eps=1e-8,
-             init_priority_beta=0.0,
+             init_priority_beta=1.0,
              priority_beta_increase=0.0,
              debug=False,
              rollout_kwargs={}):
@@ -81,7 +81,7 @@ def mc_pilco(init_states,
         x0_idxs = None
         x0_weights = torch.ones_like(x0)
         priority_beta = init_priority_beta
-        old_counts = x0_tree.counts.copy()
+        # old_counts = x0_tree.counts.copy()
 
     for i in pbar:
         # zero gradients

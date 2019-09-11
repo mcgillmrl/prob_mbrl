@@ -109,11 +109,10 @@ class CDropout(BDropout):
 
         concrete_p = self.logit_p + (noise_p / (1 - noise_m)).log()
         probs = (concrete_p / self.temp).sigmoid()
-        # print(self.logit_p)
-        # print(concrete_p, noise)
-        noise = torch.bernoulli(probs)
+
         # forward pass uses bernoulli sampled noise, but backwards
         # through concrete distribution
+        noise = torch.bernoulli(probs)
         self.concrete_noise = (noise - probs).detach() + probs
         self.p = self.logit_p.sigmoid()
 

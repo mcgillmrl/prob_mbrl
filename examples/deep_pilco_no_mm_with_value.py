@@ -66,7 +66,7 @@ def update_value_function(V,
             target_param.data.copy_(tau * param.data +
                                     (1 - tau) * target_param.data)
     V.eval()
-    # print(torch.cat([rewards.sum(0), returns, targets, pV0[0]], -1))
+    # print(torch.cat([torch.stack(rewards).sum(0), returns, targets, V0], -1))
 
 
 def update_Qvalue_function(Q,
@@ -182,6 +182,7 @@ if __name__ == '__main__':
     torch.set_num_threads(args.num_threads)
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
+    torch.set_flush_denormal(True)
     if args.env in envs.__all__:
         env = envs.__dict__[args.env]()
     else:
@@ -269,7 +270,7 @@ if __name__ == '__main__':
 
     # initialize value function approximator
     critic_model = models.mlp(D,
-                              2,
+                              1,
                               args.val_shape,
                               dropout_layers=[
                                   models.modules.CDropout(args.val_drop_rate)
@@ -277,8 +278,7 @@ if __name__ == '__main__':
                                   for hid in args.val_shape
                               ],
                               nonlin=torch.nn.Tanh)
-    V = models.Regressor(critic_model,
-                         output_density=models.DiagGaussianDensity(1)).float()
+    V = models.Regressor(critic_model).float()
     V_target = copy.deepcopy(V)
     V_target.load_state_dict(V.state_dict())
 
@@ -324,7 +324,8 @@ if __name__ == '__main__':
             min(args.control_H, initial_experience - exp.n_samples() + 1),
             stop_when_done=args.stop_when_done)
         exp.append_episode(*ret, policy_params=[])
-    exp.policy_parameters[-1] = copy.deepcopy(pol.state_dict())
+    if initial_experience > 0:
+        exp.policy_parameters[-1] = copy.deepcopy(pol.state_dict())
     exp.save(results_filename)
 
     # policy learning loop

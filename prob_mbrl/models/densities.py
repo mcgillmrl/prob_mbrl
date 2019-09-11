@@ -73,6 +73,7 @@ class DiagGaussianDensity(StochasticModule):
         Rearranges the incoming dimensions to correspond to the parameters
         of a Gaussian distribution, with diagonal covariance.
     '''
+
     def __init__(self, output_dims, max_noise_std=3.0):
         super(DiagGaussianDensity, self).__init__()
         self.output_dims = output_dims
@@ -157,6 +158,7 @@ class GaussianMixtureDensity(StochasticModule):
      Mixture of Gaussian Density Network model. The components have diagonal
      covariance.
     '''
+
     def __init__(self, output_dims, n_components, max_noise_std=3.0, **kwargs):
         super(GaussianMixtureDensity, self).__init__(**kwargs)
         self.n_components = n_components
