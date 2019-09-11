@@ -14,9 +14,9 @@ decoupled_optimizers = {}
 def iterate_minibatches(inputs, targets, batchsize):
     assert len(inputs) == len(targets)
     N = len(inputs)
-    indices = np.arange(0, max(N, batchsize)) % N
-    np.random.shuffle(indices)
     while True:
+        indices = np.arange(0, max(N, batchsize)) % N
+        np.random.shuffle(indices)
         for i in range(0, len(inputs), batchsize):
             idx = indices[i:i + batchsize]
             yield inputs[idx], targets[idx], idx
@@ -61,12 +61,12 @@ def train_regressor(model,
                     resample=True,
                     optimizer=None,
                     log_likelihood=gaussian_log_likelihood,
-                    reg_weight=None,
+                    reg_weight=1.0,
                     pbar_class=tqdm,
                     summary_writer=None,
                     summary_scope='',
                     decoupled_reg=False,
-                    prioritized_sampling=True,
+                    prioritized_sampling=False,
                     priority_eps=1e-3,
                     priority_alpha=0.6):
     global priority_tree
@@ -77,8 +77,6 @@ def train_regressor(model,
     M = batchsize
     print('train_regressor >', 'Dataset size [%d]' % int(N))
     model.train()
-    if reg_weight is None:
-        reg_weight = 1 / N
 
     params = filter(lambda p: p.requires_grad, model.parameters())
     if optimizer is None:
@@ -132,7 +130,7 @@ def train_regressor(model,
         Enlml = -log_probs.mean()
         if not decoupled_reg:
             reg = reg_weight * model.regularization_loss()
-            loss = Enlml + reg
+            loss = Enlml + reg / N
         else:
             loss = Enlml
         loss.backward()
@@ -141,7 +139,7 @@ def train_regressor(model,
         if decoupled_reg:
             # decoupled regularization
             model.zero_grad()
-            reg = reg_weight * model.regularization_loss()
+            reg = reg_weight * model.regularization_loss() / N
             reg.backward()
             reg_optimizer.step()
 
