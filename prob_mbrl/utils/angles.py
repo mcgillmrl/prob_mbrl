@@ -18,8 +18,15 @@ def to_complex(x, dims):
             ODIMS[odims_id] = (odims, dims)
 
         if isinstance(x, torch.Tensor):
+            if x.device != dims.device or x.device != odims.device:
+                #If not on same device, transfer and update cache
+                dims = dims.to(x.device)
+                odims = odims.to(x.device)
+                ODIMS[odims_id] = (odims, dims)
             return to_complex_(x, dims, odims)
         else:
+            dims = dims.cpu()
+            odims = odims.cpu()
             angles = np.atleast_1d(x[..., dims])
             others = np.atleast_1d(x[..., odims])
             return np.concatenate([others, np.sin(angles), np.cos(angles)], -1)
