@@ -8,6 +8,7 @@ from collections import OrderedDict, Iterable
 from functools import partial
 
 from ..utils.angles import to_complex
+from prob_mbrl.models import activations
 from ..utils.core import sin_squashing_fn
 
 
@@ -133,11 +134,11 @@ class Regressor(torch.nn.Module):
             self.X.data = X
         self.Y.data = Y
         self.mx.data = self.X.mean(0, keepdim=True)
-        self.Sx.data = self.X.std(0, keepdim=True)
+        self.Sx.data = 3.0 * self.X.std(0, keepdim=True)
         self.Sx.data[self.Sx == 0] = 1.0
         self.iSx.data = self.Sx.reciprocal()
         self.my.data = self.Y.mean(0, keepdim=True)
-        self.Sy.data = self.Y.std(0, keepdim=True)
+        self.Sy.data = 3.0 * self.Y.std(0, keepdim=True)
         self.Sy.data[self.Sy == 0] = 1.0
         self.iSy.data = self.Sy.reciprocal()
         if N_ensemble > 1:
@@ -230,7 +231,8 @@ class Policy(torch.nn.Module):
             u = u + unoise
 
         # saturate output
-        u = self.scale * sin_squashing_fn(u) + self.bias
+        u = self.scale * sin_squashing_fn(u * 2 / 3.0) + self.bias
+        # u = self.scale * u.tanh() + self.bias
 
         if return_numpy:
             return u.detach().cpu().numpy()

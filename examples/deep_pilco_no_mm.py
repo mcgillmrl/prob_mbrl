@@ -24,15 +24,19 @@ if __name__ == '__main__':
     parser.add_argument('--pred_H', type=int, default=15)
     parser.add_argument('--control_H', type=int, default=40)
     parser.add_argument('--discount_factor', type=str, default=None)
+    parser.add_argument('--prioritized_replay', action='store_true')
+    parser.add_argument('--timesteps_to_sample',
+                        type=utils.load_csv,
+                        default=0)
+    parser.add_argument('--mm_groups', type=int, default=None)
+    parser.add_argument('--debug', action='store_true')
 
     parser.add_argument('--dyn_lr', type=float, default=1e-4)
     parser.add_argument('--dyn_opt_iters', type=int, default=2000)
     parser.add_argument('--dyn_batch_size', type=int, default=100)
     parser.add_argument('--dyn_drop_rate', type=float, default=0.1)
     parser.add_argument('--dyn_components', type=int, default=1)
-    parser.add_argument('--dyn_shape',
-                        type=lambda s: [int(d) for d in s.split(',')],
-                        default=[200, 200])
+    parser.add_argument('--dyn_shape', type=utils.load_csv, default=[200, 200])
 
     parser.add_argument('--pol_lr', type=float, default=1e-4)
     parser.add_argument('--pol_clip', type=float, default=1.0)
@@ -40,9 +44,7 @@ if __name__ == '__main__':
     parser.add_argument('--pol_opt_iters', type=int, default=1000)
     parser.add_argument('--pol_batch_size', type=int, default=100)
     parser.add_argument('--ps_iters', type=int, default=100)
-    parser.add_argument('--pol_shape',
-                        type=lambda s: [int(d) for d in s.split(',')],
-                        default=[200, 200])
+    parser.add_argument('--pol_shape', type=utils.load_csv, default=[200, 200])
 
     parser.add_argument('--plot_level', type=int, default=0)
     parser.add_argument('--render', action='store_true')
@@ -62,11 +64,12 @@ if __name__ == '__main__':
     torch.set_num_threads(args.num_threads)
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
+    torch.set_flush_denormal(True)
     if args.env in envs.__all__:
         env = envs.__dict__[args.env]()
     else:
         import gym
-        env = gym.make(env.name)
+        env = gym.make(args.env)
 
     env_name = env.spec.id if env.spec is not None else env.__class__.__name__
     output_folder = os.path.expanduser(args.output_folder)
@@ -104,10 +107,10 @@ if __name__ == '__main__':
     # initialize discount factor
     if args.discount_factor is not None:
         if args.discount_factor == 'auto':
-            args.discount_factor = (1.0 / args.control_H)**(1.0 /
+            args.discount_factor = (1.0 / args.control_H)**(2.0 /
                                                             args.control_H)
         else:
-            args.discount_factor - float(args.discount_factor)
+            args.discount_factor = float(args.discount_factor)
 
     # initialize dynamics model
     dynE = 2 * (D + 1) if args.learn_reward else 2 * D
@@ -184,8 +187,10 @@ if __name__ == '__main__':
             rnd,
             min(args.control_H, initial_experience - exp.n_samples() + 1),
             stop_when_done=args.stop_when_done)
-        exp.append_episode(*ret, policy_params=copy.deepcopy(pol.state_dict()))
-        exp.save(results_filename)
+        exp.append_episode(*ret, policy_params=[])
+    if initial_experience > 0:
+        exp.policy_parameters[-1] = copy.deepcopy(pol.state_dict())
+    exp.save(results_filename)
 
     # policy learning loop
     expl_pol = lambda x, t: (  # noqa: E 731
@@ -201,9 +206,9 @@ if __name__ == '__main__':
                                              new_exp - exp.n_samples() + 1),
                                          stop_when_done=args.stop_when_done,
                                          callback=render_fn)
-            exp.append_episode(*ret,
-                               policy_params=copy.deepcopy(pol.state_dict()))
-            exp.save(results_filename)
+            exp.append_episode(*ret, policy_params=[])
+        exp.policy_parameters[-1] = copy.deepcopy(pol.state_dict())
+        exp.save(results_filename)
 
         # train dynamics
         X, Y = exp.get_dynmodel_dataset(deltas=True,
@@ -216,6 +221,7 @@ if __name__ == '__main__':
                               True,
                               opt1,
                               log_likelihood=dyn.output_density.log_prob,
+                              prioritized_sampling=args.prioritized_replay,
                               summary_writer=writer,
                               summary_scope='model_learning/episode_%d' %
                               ps_it)
@@ -247,12 +253,14 @@ if __name__ == '__main__':
                             pegasus=True,
                             mm_states=False,
                             mm_rewards=False,
+                            mm_groups=args.mm_groups,
                             maximize=True,
                             clip_grad=args.pol_clip,
-                            step_idx_to_sample=None,
-                            init_state_noise=0.0,
-                            prioritized_replay=True,
-                            on_iteration=on_iteration)
+                            step_idx_to_sample=args.timesteps_to_sample,
+                            init_state_noise=1e-1 * x0.std(0),
+                            prioritized_replay=args.prioritized_replay,
+                            on_iteration=on_iteration,
+                            debug=args.debug)
         torch.save(pol.state_dict(),
                    os.path.join(results_folder, 'latest_policy.pth.tar'))
         if args.plot_level > 0:

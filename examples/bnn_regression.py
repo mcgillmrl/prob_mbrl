@@ -2,7 +2,7 @@ import argparse
 import gc
 import numpy as np
 import torch
-from functools import partial
+
 from matplotlib import pyplot as plt
 from scipy.special import logsumexp
 from prob_mbrl import models, utils
@@ -59,6 +59,7 @@ def main():
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     torch.set_num_threads(args.num_threads)
+    torch.set_flush_denormal(True)
 
     idims, odims = 1, 1
     # single gaussian output model
@@ -92,7 +93,7 @@ def main():
 
     # create training dataset
     train_x = np.concatenate([
-        np.linspace(-0.6, -0.25, 100),
+        np.linspace(-1.6, -0.25, 100),
         np.linspace(0.1, 0.25, 100),
         np.linspace(0.65, 1.0, 100)
     ])
@@ -123,7 +124,7 @@ def main():
                           log_likelihood=model.output_density.log_prob)
 
     # evaluate single gaussian model
-    test_x = np.arange(-1.0, 1.5, 0.005)
+    test_x = np.arange(-2.0, 1.5, 0.005)
     ret = []
     if args.resample:
         model.resample()
@@ -163,7 +164,7 @@ def main():
                           log_likelihood=mmodel.output_density.log_prob)
 
     # evaluate mixture density network
-    test_x = np.arange(-1.0, 1.5, 0.005)
+    test_x = np.arange(-2.0, 1.5, 0.005)
     ret = []
     logit_weights = []
     if args.resample:

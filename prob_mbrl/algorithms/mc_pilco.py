@@ -21,6 +21,7 @@ def mc_pilco(init_states,
              pegasus=True,
              mm_states=False,
              mm_rewards=False,
+             mm_groups=None,
              maximize=True,
              clip_grad=1.0,
              cvar_eps=0.0,
@@ -34,7 +35,8 @@ def mc_pilco(init_states,
              prioritized_replay=False,
              priority_alpha=0.6,
              priority_eps=1e-8,
-             init_priority_beta=0.1,
+             init_priority_beta=1.0,
+             priority_beta_increase=0.0,
              debug=False,
              rollout_kwargs={}):
     global policy_update_counter, x0_tree, episode_counter
@@ -72,13 +74,14 @@ def mc_pilco(init_states,
     resample()
 
     x0 = init_states
+    N_particles = init_states.shape[0]
     n_opt_steps = policy_update_counter[policy]
 
     if prioritized_replay:
         x0_idxs = None
         x0_weights = torch.ones_like(x0)
         priority_beta = init_priority_beta
-        old_counts = x0_tree.counts.copy()
+        # old_counts = x0_tree.counts.copy()
 
     for i in pbar:
         # zero gradients
@@ -91,7 +94,10 @@ def mc_pilco(init_states,
         # rollout policy
         H = steps
         try:
-            x0_ = x0 + init_state_noise * torch.randn_like(x0)
+            x0_ = x0
+            if mm_groups is not None and x0_.shape[0] == mm_groups:
+                x0_ = utils.tile(x0_, int(N_particles / mm_groups))
+            x0_ = x0_ + init_state_noise * torch.randn_like(x0_)
             trajectories = utils.rollout(x0_,
                                          dynamics,
                                          policy,
@@ -102,9 +108,15 @@ def mc_pilco(init_states,
                                          mm_rewards=mm_rewards,
                                          z_mm=z_mm if pegasus else None,
                                          z_rr=z_rr if pegasus else None,
+                                         mm_groups=mm_groups,
                                          **rollout_kwargs)
             # dims are timesteps x batch size x state/action/reward dims
             states, actions, rewards = trajectories
+            if debug and i % 50 == 0:
+                utils.plot_trajectories(*[
+                    torch.stack(x).transpose(0, 1).detach().cpu().numpy()
+                    for x in trajectories
+                ])
             if callable(on_rollout):
                 on_rollout(i, states, actions, rewards, discount)
         except RuntimeError:
@@ -149,17 +161,28 @@ def mc_pilco(init_states,
             returns = returns * x0_weights
 
             # prepare hook to update priorities
-            ps = []
+            norms = []
 
             def accumulate_priorities(grad):
-                ps.append(grad.norm(dim=-1))
+                norms.append(grad.norm(dim=-1))
 
             def update_priorities(x0_grad):
                 global x0_tree
-                ps.append(x0_grad.norm(dim=-1))
-                mean_ps = torch.stack(ps).mean(0).detach().cpu().numpy()
-                priorities = (mean_ps + priority_eps)**priority_alpha
+                norms.append(x0_grad.norm(dim=-1))
+                # this contains the norms of gradients for every particle,
+                # per time-step
+                m_norms = torch.stack(norms)
+                # group by initial state
+                if mm_groups is not None:
+                    m_norms = m_norms.view(-1, mm_groups,
+                                           int(N_particles /
+                                               mm_groups)).mean(-1)
+                scores = m_norms.mean(0).detach().cpu().numpy(
+                ) / x0_tree.counts[x0_idxs - x0_tree.max_size + 1]
+                priorities = (scores + priority_eps)**priority_alpha
+                # print(priorities.tolist())
                 [x0_tree.update(idx, p) for idx, p in zip(x0_idxs, priorities)]
+                x0_tree.renormalize()
 
             [
                 actions[i].register_hook(accumulate_priorities)
@@ -184,6 +207,7 @@ def mc_pilco(init_states,
                 g = p.grad
                 print('{} g\tmean {},\tmin {},\tmax {},\tnorm {} '.format(
                     name, g.mean(), g.min(), g.max(), g.norm()))
+
         # clip gradients
         if clip_grad is not None:
             torch.nn.utils.clip_grad_norm_(policy.parameters(), clip_grad)
@@ -199,7 +223,6 @@ def mc_pilco(init_states,
 
         # sample initial states
         if exp is not None:
-            N_particles = init_states.shape[0]
             if prioritized_replay:
                 # first check if exp is bigger than x0_tree
                 if exp.n_samples() > x0_tree.size:
@@ -207,28 +230,36 @@ def mc_pilco(init_states,
                     for idx in range(episode_counter, exp.n_episodes()):
                         for x in torch.tensor(exp.states[idx]):
                             x0_tree.append(x, x0_tree.max_p)
+                            x0_tree.renormalize()
                     episode_counter = exp.n_episodes()
-                x0, x0_idxs, x0_weights = x0_tree.sample(N_particles,
-                                                         beta=priority_beta)
-                priority_beta = max(1.0, priority_beta + 1 / opt_iters)
+
+                if mm_groups is not None:
+                    x0, x0_idxs, x0_weights = x0_tree.sample(
+                        mm_groups, beta=priority_beta)
+                else:
+                    x0, x0_idxs, x0_weights = x0_tree.sample(
+                        N_particles, beta=priority_beta)
+
+                priority_beta = max(1.0,
+                                    priority_beta + priority_beta_increase)
                 x0 = torch.stack(x0).to(dynamics.X.device, dynamics.X.dtype)
                 x0_weights = torch.tensor(np.stack(x0_weights)).to(
                     x0.device, x0.dtype)
+                # print((x0_tree.counts == 1).sum(), x0_tree.counts.max())
                 x0.requires_grad_(True)
-                if debug > 1:
-                    angles = torch.atan2(*torch.split(
-                        torch.stack(x0_tree.data[:exp.n_samples()])[:, -2:], 1,
-                        -1)).flatten().detach().cpu().numpy()
-                    print(
-                        sorted(list(
-                            zip(
-                                angles, x0_tree.counts[:exp.n_samples()] -
-                                old_counts[:exp.n_samples()])),
-                               key=lambda x: x[1]))
             else:
-                x0 = exp.sample_states(N_particles,
-                                       timestep=step_idx_to_sample).to(
-                                           dynamics.X.device, dynamics.X.dtype)
+                if mm_groups is not None:
+                    # split the initial states into groups from
+                    # different timesteps
+                    x0 = exp.sample_states(mm_groups,
+                                           timestep=step_idx_to_sample).to(
+                                               dynamics.X.device,
+                                               dynamics.X.dtype)
+                else:
+                    x0 = exp.sample_states(N_particles,
+                                           timestep=step_idx_to_sample).to(
+                                               dynamics.X.device,
+                                               dynamics.X.dtype)
                 init_states = x0
 
         else:

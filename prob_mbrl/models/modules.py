@@ -17,6 +17,7 @@ class BDropout(StochasticModule):
         Extends the base Dropout layer by adding a regularizer as derived by
         Gal and Ghahrahmani "Dropout as a Bayesian Approximation" (2015)
     """
+
     def __init__(self, rate=0.5, name=None, regularizer_scale=1.0, **kwargs):
         super(BDropout, self).__init__(**kwargs)
         self.name = name
@@ -109,11 +110,10 @@ class CDropout(BDropout):
 
         concrete_p = self.logit_p + (noise_p / (1 - noise_m)).log()
         probs = (concrete_p / self.temp).sigmoid()
-        #print(self.logit_p)
-        #print(concrete_p, noise)
-        noise = torch.bernoulli(probs)
+
         # forward pass uses bernoulli sampled noise, but backwards
         # through concrete distribution
+        noise = torch.bernoulli(probs)
         self.concrete_noise = (noise - probs).detach() + probs
         self.p = self.logit_p.sigmoid()
 
@@ -316,6 +316,8 @@ class BSequential(nn.modules.Sequential):
             if isinstance(module, BDropout):
                 if seed is not None:
                     module.resample(seed + i)
+                else:
+                    module.resample()
                 i += 1
 
     def forward(self, input, resample=True, repeat_mask=False, **kwargs):
@@ -369,6 +371,7 @@ class SpectralNorm(torch.nn.Module):
         W_sn = W/sigma(W), where sigma(W) is the largest eigenvalue
         of W
     """
+
     def __init__(self,
                  module,
                  power_iterations=1,

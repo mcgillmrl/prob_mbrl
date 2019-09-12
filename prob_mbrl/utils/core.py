@@ -180,6 +180,18 @@ def sin_squashing_fn(x):
     return 0.125 * (xx * scale).sum(0)
 
 
+def tile(tensor, n):
+    return tensor.unsqueeze(0).transpose(0, 1).repeat(1, 1, n).view(
+        n * tensor.shape[0], -1)
+
+
+def load_csv(s):
+    try:
+        return [int(d) for d in s.split(',')]
+    except Exception:
+        return None
+
+
 def load_checkpoint(path, dyn, pol, exp, val=None):
     msg = "Unable to load dynamics model parameters at {}"
     try:

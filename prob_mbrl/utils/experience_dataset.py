@@ -277,18 +277,26 @@ class SumTree:
         self.max_p = 1.0
         self.max_count = 0
         self.size = 0
+        self.norm_factor = 1.0
 
     def append(self, data, priority):
         self.data[self.idx] = data
-        self.counts[self.idx] = 0
+        self.counts[self.idx] = 1
         self.update(self.idx + self.max_size - 1, priority)
         self.idx = (self.idx + 1) % self.max_size
         self.size = min(self.size + 1, self.max_size)
 
     def update(self, idx, priority):
-        self.sum_tree[idx] = priority
+        self.sum_tree[idx] = priority * self.norm_factor
         self._update(idx)
         self.max_p = max(self.max_p, priority)
+
+    def renormalize(self):
+        # update_nf
+        nf_change = 1.0 / (self.sum_tree[0])
+        self.norm_factor *= nf_change
+        # renormalize
+        self.sum_tree *= nf_change
 
     def _update(self, idx):
         while idx != 0:

@@ -14,9 +14,9 @@ decoupled_optimizers = {}
 def iterate_minibatches(inputs, targets, batchsize):
     assert len(inputs) == len(targets)
     N = len(inputs)
-    indices = np.arange(0, max(N, batchsize)) % N
-    np.random.shuffle(indices)
     while True:
+        indices = np.arange(0, max(N, batchsize)) % N
+        np.random.shuffle(indices)
         for i in range(0, len(inputs), batchsize):
             idx = indices[i:i + batchsize]
             yield inputs[idx], targets[idx], idx
@@ -25,6 +25,7 @@ def iterate_minibatches(inputs, targets, batchsize):
 def iterate_priority_tree(inputs, targets, batchsize, tree, warmup_iters=100):
     if len(inputs) > tree.size:
         [tree.append(i, tree.max_p) for i in range(tree.size, len(inputs))]
+        tree.renormalize()
 
     iter_ = iterate_minibatches(inputs, targets, batchsize)
     beta = 0.4
@@ -32,6 +33,7 @@ def iterate_priority_tree(inputs, targets, batchsize, tree, warmup_iters=100):
     for i in range(warmup_iters):
         x, y, idxs = next(iter_)
         tree.counts[idxs] += 1
+        tree.max_count = max(tree.max_count, tree.counts[idxs].max())
         idxs = idxs + tree.max_size - 1
         yield x, y, idxs, torch.ones(x.shape[0], 1)
 
@@ -59,12 +61,12 @@ def train_regressor(model,
                     resample=True,
                     optimizer=None,
                     log_likelihood=gaussian_log_likelihood,
-                    reg_weight=None,
+                    reg_weight=1.0,
                     pbar_class=tqdm,
                     summary_writer=None,
                     summary_scope='',
                     decoupled_reg=False,
-                    prioritized_sampling=True,
+                    prioritized_sampling=False,
                     priority_eps=1e-3,
                     priority_alpha=0.6):
     global priority_tree
@@ -75,8 +77,6 @@ def train_regressor(model,
     M = batchsize
     print('train_regressor >', 'Dataset size [%d]' % int(N))
     model.train()
-    if reg_weight is None:
-        reg_weight = 1 / N
 
     params = filter(lambda p: p.requires_grad, model.parameters())
     if optimizer is None:
@@ -115,7 +115,7 @@ def train_regressor(model,
             idxs, weights = batch[2:]
             weights = torch.tensor(np.stack(weights)).to(X.device, X.dtype)
             tree = priority_tree[model]
-            #priorities = (2 - log_probs.clamp(-1, 2).detach().cpu().numpy() +
+            # priorities = (2 - log_probs.clamp(-1, 2).detach().cpu().numpy() +
             #              priority_eps)**priority_alpha
             a = 2
             p0 = 1 + (a - log_probs.flatten().clamp(
@@ -124,12 +124,13 @@ def train_regressor(model,
                           (tree.counts[idxs - tree.max_size + 1]) +
                           priority_eps)**priority_alpha
             [tree.update(idx, p) for idx, p in zip(idxs, priorities)]
+            tree.renormalize()
             log_probs = log_probs * weights
 
         Enlml = -log_probs.mean()
         if not decoupled_reg:
             reg = reg_weight * model.regularization_loss()
-            loss = Enlml + reg
+            loss = Enlml + reg / N
         else:
             loss = Enlml
         loss.backward()
@@ -138,7 +139,7 @@ def train_regressor(model,
         if decoupled_reg:
             # decoupled regularization
             model.zero_grad()
-            reg = reg_weight * model.regularization_loss()
+            reg = reg_weight * model.regularization_loss() / N
             reg.backward()
             reg_optimizer.step()
 

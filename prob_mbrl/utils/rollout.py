@@ -61,6 +61,7 @@ def rollout(states,
             infer_noise_variables=False,
             z_mm=None,
             z_rr=None,
+            mm_groups=None,
             breaking_condition=None,
             on_step=None,
             on_pol_eval=None,
@@ -86,7 +87,7 @@ def rollout(states,
             z2 = get_z_rnd(z_rr, i, (states.shape[0], 1), states.device)
 
             # noisy state measurement
-            states_ = states + state_noise
+            states_ = states + state_noise.detach()
 
             # evaluate policy
             actions = policy(states_,
@@ -113,14 +114,26 @@ def rollout(states,
                 if jitter1 is None:
                     jitter1 = 1e-12 * torch.eye(states.shape[-1],
                                                 device=states.device)
-                next_states = mm_resample(next_states, z1, jitter1)
+                if mm_groups is not None:
+                    next_states = torch.cat([
+                        mm_resample(nsi, z1i, jitter1) for nsi, z1i in zip(
+                            next_states.chunk(mm_groups), z1.chunk(mm_groups))
+                    ])
+                else:
+                    next_states = mm_resample(next_states, z1, jitter1)
 
             # moment matching for rewards
             if mm_rewards:
                 if jitter2 is None:
                     jitter2 = 1e-12 * torch.eye(rewards.shape[-1],
                                                 device=rewards.device)
-                rewards = mm_resample(rewards, z2, jitter2)
+                if mm_groups is not None:
+                    rewards = torch.cat([
+                        mm_resample(ri, z2i, jitter2) for ri, z2i in zip(
+                            rewards.chunk(mm_groups), z2.chunk(mm_groups))
+                    ])
+                else:
+                    rewards = mm_resample(rewards, z2, jitter2)
 
             # noisy reward measurements
             # rewards = rewards + 0.1 * reward_noise
@@ -144,11 +157,75 @@ def rollout(states,
     return trajectory
 
 
+def rollout_with_values(states,
+                        dynamics,
+                        policy,
+                        steps,
+                        V,
+                        resample_model=False,
+                        resample_policy=False,
+                        resample_state_noise=True,
+                        resample_action_noise=True,
+                        mm_states=False,
+                        mm_rewards=False,
+                        infer_noise_variables=False,
+                        z_mm=None,
+                        z_rr=None,
+                        mm_groups=None,
+                        breaking_condition=None,
+                        on_step=None,
+                        on_pol_eval=None,
+                        **kwargs):
+    def compute_values(trajectory):
+        # get last step
+        states, actions, rewards = trajectory[-1]
+        # compute and append values for last step
+        values = V(states.detach(),
+                   output_noise=True,
+                   return_samples=True,
+                   resample=resample_model,
+                   resample_output_noise=resample_state_noise)
+        trajectory[-1] = ((states, actions, rewards, values))
+        if callable(on_step):
+            on_step(trajectory)
+
+    trajectory = rollout(states,
+                         dynamics,
+                         policy,
+                         steps,
+                         resample_model,
+                         resample_policy,
+                         resample_state_noise,
+                         resample_action_noise,
+                         mm_states,
+                         mm_rewards,
+                         infer_noise_variables,
+                         z_mm,
+                         z_rr,
+                         mm_groups,
+                         breaking_condition,
+                         on_step=compute_values,
+                         on_pol_eval=on_pol_eval)
+    # append value of last state
+    # get last step
+    states = trajectory[0][-1]
+
+    # compute and append values for last step
+    values = V(states,
+               output_noise=True,
+               return_samples=True,
+               resample=resample_model,
+               resample_output_noise=resample_state_noise)
+    trajectory[-1].append(values)
+
+    return trajectory
+
+
 def rollout_with_Qvalues(states,
                          dynamics,
                          policy,
-                         Q,
                          steps,
+                         Q,
                          resample_model=False,
                          resample_policy=False,
                          resample_state_noise=True,
@@ -158,14 +235,55 @@ def rollout_with_Qvalues(states,
                          infer_noise_variables=False,
                          z_mm=None,
                          z_rr=None,
+                         mm_groups=None,
                          breaking_condition=None,
                          on_step=None,
+                         on_pol_eval=None,
                          **kwargs):
     def compute_values(trajectory):
         # get last step
         states, actions, rewards = trajectory[-1]
         # compute and append values for last step
-        values = Q(torch.cat([states, actions], -1))
-        trajectory[-1].append(values)
+        values = Q(torch.cat([states, actions].detach(), -1),
+                   output_noise=True,
+                   return_samples=True,
+                   resample=resample_model,
+                   resample_output_noise=resample_state_noise)
+        trajectory[-1] = ((states, actions, rewards, values))
         if callable(on_step):
             on_step(trajectory)
+
+    trajectory = rollout(states,
+                         dynamics,
+                         policy,
+                         steps,
+                         resample_model,
+                         resample_policy,
+                         resample_state_noise,
+                         resample_action_noise,
+                         mm_states,
+                         mm_rewards,
+                         infer_noise_variables,
+                         z_mm,
+                         z_rr,
+                         mm_groups,
+                         breaking_condition,
+                         on_step=compute_values,
+                         on_pol_eval=on_pol_eval)
+    # append value of last state
+    # get last step
+    states = trajectory[0][-1]
+    actions = policy(states,
+                     resample=resample_policy,
+                     output_noise=True,
+                     return_samples=True,
+                     resample_output_noise=resample_action_noise)
+    # compute and append values for last step
+    values = Q(torch.cat([states, actions], -1),
+               output_noise=True,
+               return_samples=True,
+               resample=resample_model,
+               resample_output_noise=resample_state_noise)
+    trajectory[-1].append(values)
+
+    return trajectory
