@@ -20,7 +20,7 @@ def update_value_function(V,
                           rewards,
                           discount,
                           V_target=None,
-                          reg_weight=1e-3,
+                          reg_weight=1e-4,
                           resample=False,
                           polyak_averaging=0.005):
     V_tgt = V if V_target is None else V_target
@@ -49,8 +49,7 @@ def update_value_function(V,
         VH = V_tgt(states[H].detach(),
                    resample=resample,
                    seed=seed,
-                   return_samples=True,
-                   output_noise=False)
+                   return_samples=True)
         targets = returns + discount(H) * VH.detach()
         loss = V.output_density.log_prob(targets, *pV0).mean()
 
@@ -104,8 +103,7 @@ def update_Qvalue_function(Q,
         QH = Q_tgt(inpsH.detach(),
                    resample=True,
                    seed=seed,
-                   return_samples=True,
-                   output_noise=False)
+                   return_samples=True)
         targets = returns + discount(H) * QH.detach()
         loss = V.output_density.log_prob(targets, *pQ0).mean()
 
@@ -261,7 +259,6 @@ if __name__ == '__main__':
                                if args.pol_drop_rate > 0 else None
                                for hid in args.pol_shape
                            ],
-                           biases_initializer=None,
                            nonlin=torch.nn.ReLU,
                            output_nonlin=partial(models.DiagGaussianDensity,
                                                  U))
@@ -277,7 +274,7 @@ if __name__ == '__main__':
                                   if args.val_drop_rate > 0 else None
                                   for hid in args.val_shape
                               ],
-                              nonlin=torch.nn.Tanh)
+                              nonlin=torch.nn.ReLU)
     V = models.Regressor(critic_model).float()
     V_target = copy.deepcopy(V)
     V_target.load_state_dict(V.state_dict())

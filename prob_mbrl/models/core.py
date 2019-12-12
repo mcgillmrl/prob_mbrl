@@ -231,8 +231,8 @@ class Policy(torch.nn.Module):
             u = u + unoise
 
         # saturate output
-        u = self.scale * sin_squashing_fn(u * 2 / 3.0) + self.bias
-        # u = self.scale * u.tanh() + self.bias
+        # u = self.scale * sin_squashing_fn(u * 2 / 3.0) + self.bias
+        u = self.scale * u.tanh() + self.bias
 
         if return_numpy:
             return u.detach().cpu().numpy()
@@ -279,30 +279,17 @@ class DynamicsModel(Regressor):
             D = outs.shape[-1]
             prev_states, actions = inputs.split(D, -1)
 
-        state_noise = torch.zeros_like(prev_states)
-        reward_noise = torch.zeros_like(state_noise[:, 0:1])
-
         if callable(self.reward_func):
             # if we have a known reward function
-            if len(outs) == 2:  # density is returning the output noise
-                dstates, state_noise = outs
-            else:
-                dstates = outs
+            dstates = outs
             rewards = self.reward_func(prev_states + dstates, actions)
         else:
-            if len(outs) == 2:  # density is returning the output noise
-                outs, noise = outs
-                D = outs.shape[-1] - 1
-                state_noise, reward_noise = noise.split(D, -1)
-            else:
-                D = outs.shape[-1] - 1
             # assume rewards come from the last dimension of the output
             dstates, rewards = outs.split(D, -1)
 
         states = dstates if deltas else prev_states + dstates
 
         if separate_outputs:
-            return (states, rewards), (state_noise, reward_noise)
+            return states, rewards
 
-        return torch.cat([states, rewards],
-                         -1), torch.cat([state_noise, reward_noise], -1)
+        return torch.cat([states, rewards], -1)

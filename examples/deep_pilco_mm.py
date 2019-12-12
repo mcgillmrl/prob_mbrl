@@ -53,6 +53,7 @@ if __name__ == '__main__':
     parser.add_argument('--keep_best', action='store_true')
     parser.add_argument('--stop_when_done', action='store_true')
     parser.add_argument('--expl_noise', type=float, default=0.0)
+    parser.add_argument('--resampling_period', type=int, default=99)
 
     # parameters
     args = parser.parse_args()
@@ -143,7 +144,6 @@ if __name__ == '__main__':
                                if args.pol_drop_rate > 0 else None
                                for hid in args.pol_shape
                            ],
-                           biases_initializer=None,
                            nonlin=torch.nn.ReLU,
                            output_nonlin=partial(models.DiagGaussianDensity,
                                                  U))
@@ -256,8 +256,9 @@ if __name__ == '__main__':
                             mm_groups=args.mm_groups,
                             maximize=True,
                             clip_grad=args.pol_clip,
+                            resampling_period=args.resampling_period,
                             step_idx_to_sample=args.timesteps_to_sample,
-                            init_state_noise=1e-1 * x0.std(0),
+                            init_state_noise=1e-2 * x0.std(0),
                             prioritized_replay=args.prioritized_replay,
                             on_iteration=on_iteration,
                             debug=args.debug)

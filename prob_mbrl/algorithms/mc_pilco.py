@@ -31,7 +31,7 @@ def mc_pilco(init_states,
              on_iteration=None,
              step_idx_to_sample=None,
              init_state_noise=0.0,
-             resampling_period=499,
+             resampling_period=99,
              prioritized_replay=False,
              priority_alpha=0.6,
              priority_eps=1e-8,
@@ -134,10 +134,7 @@ def mc_pilco(init_states,
         discounted_rewards = torch.stack(
             [r * discount(i) for i, r in enumerate(rewards)])
         if value_func is not None:
-            Vend = value_func(states[-1],
-                              resample=False,
-                              return_samples=True,
-                              output_noise=False)
+            Vend = value_func(states[-1], resample=False, return_samples=True)
             discounted_rewards = torch.cat(
                 [discounted_rewards,
                  discount(H) * Vend.unsqueeze(0)], 0)
@@ -274,7 +271,6 @@ class MCPILCOAgent(torch.nn.Module):
     '''
     Utility class for instantiating an MCPILCO learning agent
     '''
-
     def __init__(self,
                  policy,
                  dynamics,
@@ -453,7 +449,6 @@ class MCPILCOAgent(torch.nn.Module):
     def fit_dynamics(self):
         '''
         '''
-
     def forward(self, x):
         '''
         Calling the agent is equivalent to evaluating its policy

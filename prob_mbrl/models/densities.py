@@ -32,8 +32,7 @@ class CategoricalDensity(StochasticModule):
                 x,
                 scaling_params=None,
                 return_samples=False,
-                output_noise=True,
-                resample_output_noise=True,
+                resample_noise=True,
                 sampling_temperature=0.1,
                 seed=None,
                 **kwargs):
@@ -44,7 +43,7 @@ class CategoricalDensity(StochasticModule):
         else:
             logits = outs[0][:D]
         if return_samples:
-            if (x.shape != self.z.shape) or resample_output_noise:
+            if (x.shape != self.z.shape) or resample_noise:
                 if seed is not None:
                     torch.manual_seed(seed)
                 u = torch.rand_like(x)
@@ -90,8 +89,7 @@ class DiagGaussianDensity(StochasticModule):
                 x,
                 scaling_params=None,
                 return_samples=False,
-                output_noise=True,
-                resample_output_noise=True,
+                resample_noise=True,
                 seed=None,
                 **kwargs):
         D = int(self.output_dims)
@@ -113,15 +111,13 @@ class DiagGaussianDensity(StochasticModule):
 
         if return_samples:
             samples = mean
-            if output_noise:
-                if (mean.shape != self.z.shape) or resample_output_noise:
-                    if seed is not None:
-                        torch.manual_seed(seed)
-                    self.z.data = torch.randn_like(mean)
-                z = self.z
-                noise = z * log_std.exp()
-                return samples, noise
-            return samples
+            if (mean.shape != self.z.shape) or resample_noise:
+                if seed is not None:
+                    torch.manual_seed(seed)
+                self.z.data = torch.randn_like(mean)
+            z = self.z
+            noise = z * log_std.exp()
+            return samples + noise
         else:
             return mean, log_std
 
@@ -178,8 +174,7 @@ class GaussianMixtureDensity(StochasticModule):
                 x,
                 scaling_params=None,
                 return_samples=False,
-                output_noise=True,
-                resample_output_noise=True,
+                resample_noise=True,
                 sampling_temperature=0.1,
                 seed=None,
                 **kwargs):
@@ -217,7 +212,7 @@ class GaussianMixtureDensity(StochasticModule):
         if return_samples:
             if seed is not None:
                 torch.manual_seed(seed)
-            if (logit_pi.shape != self.z_pi.shape) or resample_output_noise:
+            if (logit_pi.shape != self.z_pi.shape) or resample_noise:
                 u = torch.rand_like(logit_pi)
                 self.z_pi.data = -(-u.log()).log()
             z1 = self.z_pi
@@ -231,16 +226,13 @@ class GaussianMixtureDensity(StochasticModule):
             # get hard max (but backprop through softmax)
             k = ((k_hard - k_soft).detach() + k_soft)[:, None, :]
             samples = (mean * k).sum(-1)
-            if output_noise:
-                if (mean[:-1].shape != self.z_pi.shape)\
-                        or resample_output_noise:
-                    self.z_normal.data = torch.randn(*mean.shape[:-1],
-                                                     device=mean.device)
-                z2 = self.z_normal
-                noise = z2 * (log_std * k).sum(-1).exp()
-
-                return samples, noise
-            return samples
+            if (mean[:-1].shape != self.z_pi.shape)\
+                    or resample_noise:
+                self.z_normal.data = torch.randn(*mean.shape[:-1],
+                                                 device=mean.device)
+            z2 = self.z_normal
+            noise = z2 * (log_std * k).sum(-1).exp()
+            return samples + noise
         else:
             return mean, log_std, logit_pi
 
@@ -267,3 +259,30 @@ class GaussianMixtureDensity(StochasticModule):
         desc = '(output_dims=%d, n_components=%d)' % (self.output_dims,
                                                       self.n_components)
         return self.__class__.__name__ + desc
+
+
+def TanhSquashedDensity(StochasticModule):
+    def __init__(self, density, maxU, minU, **kwargs):
+        super(TanhSquashedDensity, self).__init__(**kwargs)
+        self.density = density
+        if minU is None:
+            minU = -maxU
+        scale = 0.5 * (maxU - minU)
+        bias = 0.5 * (maxU + minU)
+        self.register_buffer('scale', torch.tensor(scale).squeeze())
+        self.register_buffer('bias', torch.tensor(bias).squeeze())
+
+    def resample(self, seed=None):
+        self.density.resample(seed)
+
+    def forward(self, x, **kwargs):
+        outs = self.density.forward(x, **kwargs)
+        if kwargs['return_samples']:
+            u, noise = outs
+            #
+
+    def log_prob(self):
+        pass
+
+    def __repr__(self):
+        return self.__class__.__name__ + "(" + self.density.__repr__ + ")"

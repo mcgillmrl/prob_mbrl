@@ -143,7 +143,6 @@ if __name__ == '__main__':
                                if args.pol_drop_rate > 0 else None
                                for hid in args.pol_shape
                            ],
-                           biases_initializer=None,
                            nonlin=torch.nn.ReLU,
                            output_nonlin=partial(models.DiagGaussianDensity,
                                                  U))
