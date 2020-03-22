@@ -39,7 +39,7 @@ def get_mm_resample_script(samples,
         inputs = (samples.view(mm_groups, -1, samples.shape[-1]),
                   z.view(mm_groups, -1, z.shape[-1]), jitter)
     else:
-    inputs = (samples, z, jitter)
+        inputs = (samples, z, jitter)
     key = (str(inp.type()) + '_' + str(inp.device) for inp in inputs)
     key = '_'.join(key) + str(infer_noise_variables)
     if key not in jit_scripts:
