@@ -16,7 +16,6 @@ class BDropout(StochasticModule):
         Extends the base Dropout layer by adding a regularizer as derived by
         Gal and Ghahrahmani "Dropout as a Bayesian Approximation" (2015)
     """
-
     def __init__(self, rate=0.5, name=None, regularizer_scale=1.0, **kwargs):
         super(BDropout, self).__init__(**kwargs)
         self.name = name
@@ -174,7 +173,6 @@ class TLNDropout(BDropout):
     '''
         'Implements truncated log-normal dropout (NIPS 2017)
     '''
-
     def __init__(self, interval=[-10, 0]):
         self.register_buffer('interval', torch.tensor(interval))
         self.logit_posterior_mean = Parameter(
@@ -262,7 +260,6 @@ class SpectralNorm(torch.nn.Module):
         W_sn = W/sigma(W), where sigma(W) is the largest eigenvalue
         of W
     """
-
     def __init__(self,
                  module,
                  power_iterations=1,

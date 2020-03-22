@@ -35,7 +35,6 @@ class Integrator(IntEnum):
 
 class GymEnv(gym.Env):
     """Open AI gym  environment."""
-
     def __init__(self,
                  model,
                  reward_func=None,
@@ -116,7 +115,6 @@ class GymEnv(gym.Env):
 
 class DynamicsModel(torch.nn.Module):
     """Base dynamics model."""
-
     def __init__(self):
         super(DynamicsModel, self).__init__()
         self.solver = None
@@ -212,8 +210,8 @@ class DynamicsModel(torch.nn.Module):
                     return self.dynamics(z_t, self.action, t)
 
                 self.solver = ode(dyn_fn).set_integrator('dopri5',
-                                                         atol=1e-9,
-                                                         rtol=1e-9)
+                                                         atol=1e-12,
+                                                         rtol=1e-12)
 
             if isinstance(state, torch.Tensor):
                 state_ = state.detach().numpy()

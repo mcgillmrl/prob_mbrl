@@ -20,7 +20,7 @@ def update_value_function(V,
                           rewards,
                           discount,
                           V_target=None,
-                          reg_weight=1e-3,
+                          reg_weight=1e-4,
                           resample=False,
                           polyak_averaging=0.005):
     V_tgt = V if V_target is None else V_target
@@ -344,6 +344,7 @@ if __name__ == '__main__':
                                          stop_when_done=args.stop_when_done,
                                          callback=render_fn)
             exp.append_episode(*ret, policy_params=[])
+            # V.my.fill_(max([np.sum(rews) for rews in exp.rewards]))
         exp.policy_parameters[-1] = copy.deepcopy(pol.state_dict())
         exp.save(results_filename)
 

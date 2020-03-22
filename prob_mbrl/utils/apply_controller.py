@@ -44,6 +44,7 @@ def apply_controller(env,
 
     # do rollout
     t_ = time.time()
+    t0 = t_
     for t in range(max_steps):
         # preprocess state
         x_t_ = preprocess(x_t) if callable(preprocess) else x_t
@@ -58,6 +59,7 @@ def apply_controller(env,
         # apply control and step the env
         x_next, c_t, done, info = env.step(u_t)
         info['done'] = done
+        info['t'] = t * dt if realtime else t_ - t0
 
         # append to dataset
         data.append((x_t, u_t, c_t, done, info))

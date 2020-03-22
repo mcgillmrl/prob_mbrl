@@ -19,19 +19,20 @@ def mlp(input_dims,
         output_nonlin=None,
         weights_initializer=partial(torch.nn.init.xavier_normal_,
                                     gain=torch.nn.init.calculate_gain('relu')),
-        biases_initializer=partial(torch.nn.init.uniform_, a=-0.1, b=0.1),
+        biases_initializer=partial(torch.nn.init.uniform_, a=-1e-1, b=1e-1),
         hidden_biases=True,
         output_biases=True,
         dropout_layers=BDropout,
         input_dropout=None,
         spectral_norm=False,
-        spectral_norm_output=False):
+        spectral_norm_output=False,
+        layer_norm=False):
     '''
         Utility function for creating multilayer perceptrons of varying depth.
     '''
     dims = [input_dims] + hidden_dims
     if not isinstance(dropout_layers, Iterable):
-        dropout_layers = [dropout_layers] * (len(hidden_dims))
+        dropout_layers = [copy.deepcopy(dropout_layers)] * (len(hidden_dims))
 
     modules = OrderedDict()
     # add input dropout
@@ -50,7 +51,9 @@ def mlp(input_dims,
         if spectral_norm:
             fc = SpectralNorm(fc)
         modules['fc%d' % i] = fc
-
+        # layer norm pre_activations
+        if layer_norm:
+            modules['ln%d' % i] = torch.nn.LayerNorm(dout)
         # activation
         if callable(nonlin):
             modules['nonlin%d' % i] = nonlin()
@@ -75,7 +78,8 @@ def mlp(input_dims,
         if callable(weights_initializer):
 
             def fn(module):
-                if hasattr(module, 'weight'):
+                if hasattr(module, 'weight') and not isinstance(
+                        module, torch.nn.LayerNorm):
                     weights_initializer(module.weight)
 
             net.apply(fn)
@@ -134,12 +138,12 @@ class Regressor(torch.nn.Module):
             self.X.data = X
         self.Y.data = Y
         self.mx.data = self.X.mean(0, keepdim=True)
-        self.Sx.data = 3.0 * self.X.std(0, keepdim=True)
-        self.Sx.data[self.Sx == 0] = 1.0
+        self.Sx.data = 4.0 * self.X.std(0, keepdim=True)
+        self.Sx.data[self.Sx == 0] = 4.0
         self.iSx.data = self.Sx.reciprocal()
         self.my.data = self.Y.mean(0, keepdim=True)
-        self.Sy.data = 3.0 * self.Y.std(0, keepdim=True)
-        self.Sy.data[self.Sy == 0] = 1.0
+        self.Sy.data = 4.0 * self.Y.std(0, keepdim=True)
+        self.Sy.data[self.Sy == 0] = 4.0
         self.iSy.data = self.Sy.reciprocal()
         if N_ensemble > 1:
             self.masks.data = torch.bernoulli(
@@ -175,6 +179,8 @@ class Regressor(torch.nn.Module):
             outs = self.output_density(outs,
                                        scaling_params=scaling_params,
                                        **kwargs)
+        else:
+            outs = outs * self.Sy + self.my
 
         return outs
 
@@ -231,8 +237,8 @@ class Policy(torch.nn.Module):
             u = u + unoise
 
         # saturate output
-        u = self.scale * sin_squashing_fn(u * 2 / 3.0) + self.bias
-        # u = self.scale * u.tanh() + self.bias
+        # u = self.scale * sin_squashing_fn(u * 2 / 3.0) + self.bias
+        u = self.scale * u.tanh() + self.bias
 
         if return_numpy:
             return u.detach().cpu().numpy()

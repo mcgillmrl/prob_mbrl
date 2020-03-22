@@ -257,7 +257,8 @@ class ExperienceDataset(torch.nn.Module):
                           actions=self.actions,
                           rewards=self.rewards,
                           info=self.info,
-                          times_stamps=self.time_stamps,
+                          done=self.done,
+                          time_stamps=self.time_stamps,
                           curr_episode=self.curr_episode,
                           policy_parameters=self.policy_parameters)
         torch.save(state_dict, filename)
