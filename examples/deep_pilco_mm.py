@@ -258,7 +258,7 @@ if __name__ == '__main__':
                             clip_grad=args.pol_clip,
                             resampling_period=args.resampling_period,
                             step_idx_to_sample=args.timesteps_to_sample,
-                            init_state_noise=1e-1 * x0.std(0),
+                            init_state_noise=1e-2 * x0.std(0),
                             prioritized_replay=args.prioritized_replay,
                             on_iteration=on_iteration,
                             debug=args.debug)

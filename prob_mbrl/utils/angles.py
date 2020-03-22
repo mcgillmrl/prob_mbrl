@@ -10,7 +10,8 @@ def to_complex(x, dims):
         return x
     else:
         # check cache for indices
-        odims_id = (x.shape[-1], tuple(dims))
+        odims_id = (x.dtype, getattr(x, 'device',
+                                     'cpu'), x.shape[-1], tuple(dims))
         if odims_id in ODIMS:
             odims, dims = ODIMS[odims_id]
         else:

@@ -116,7 +116,7 @@ class DiagGaussianDensity(StochasticModule):
                 self.z.data = torch.randn_like(mean)
             z = self.z
             noise = z * log_std.exp()
-            return samples, noise
+            return samples + noise
         else:
             return mean, log_std
 
@@ -230,7 +230,7 @@ class GaussianMixtureDensity(StochasticModule):
                                                  device=mean.device)
             z2 = self.z_normal
             noise = z2 * (log_std * k).sum(-1).exp()
-            return samples, noise
+            return samples + noise
         else:
             return mean, log_std, logit_pi
 

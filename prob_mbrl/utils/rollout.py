@@ -82,7 +82,6 @@ def rollout(states,
         by rolling out the policy on the model, from the given set of states
     '''
     trajectory = []
-    state_noise = torch.zeros_like(states)
     jitter1, jitter2 = None, None
 
     mm_resample = (mm_resample_infer_ns_
@@ -101,7 +100,7 @@ def rollout(states,
             states_ = states + state_noise  #   .detach()
 
             # evaluate policy
-            actions = policy(states_,
+            actions = policy(states,
                              resample=resample_policy,
                              return_samples=True,
                              resample_noise=resample_action_noise)
@@ -116,8 +115,7 @@ def rollout(states,
                             deltas=False,
                             resample=resample_model,
                             resample_noise=resample_state_noise)
-            next_states, rewards = outs[0]
-            state_noise, reward_noise = outs[1]
+            next_states, rewards = outs
 
             # moment matching for states
             if mm_states:
