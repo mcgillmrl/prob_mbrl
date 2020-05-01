@@ -97,7 +97,7 @@ def rollout(states,
             z2 = get_z_rnd(z_rr, i, (states.shape[0], 1), states.device)
 
             # noisy state measurement
-            states_ = states + state_noise  #   .detach()
+            #states_ = states + state_noise  #   .detach()
 
             # evaluate policy
             actions = policy(states,

@@ -29,8 +29,8 @@ def to_complex(x, dims):
 def build_odims_(x, dims):
     # build indices for other dimensions
     if not isinstance(dims, torch.Tensor):
-        dims = torch.tensor(dims).to(x.device)
-    odims = torch.arange(0, x.shape[-1]).long().to(dims.device)
+        dims = torch.tensor(dims).to(getattr(x, 'device', 'cpu'))
+        odims = torch.arange(0, x.shape[-1]).long().to(dims.device)
     odims = torch.bitwise_not(torch.eq(dims,
                                        odims[:, None])).prod(1).nonzero()[:, 0]
     return odims.detach(), dims
