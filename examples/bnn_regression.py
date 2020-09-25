@@ -15,12 +15,12 @@ def main():
     parser.add_argument('--num_threads', type=int, default=1)
     parser.add_argument('--net_shape',
                         type=lambda s: [int(d) for d in s.split(',')],
-                        default=[200, 200])
+                        default=[200, 200, 200, 200])
     parser.add_argument('--drop_rate', type=float, default=0.1)
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--n_components', type=int, default=5)
     parser.add_argument('--N_batch', type=int, default=100)
-    parser.add_argument('--train_iters', type=int, default=10000)
+    parser.add_argument('--train_iters', type=int, default=15000)
     parser.add_argument('--noise_level', type=float, default=0)
     parser.add_argument('--resample', action='store_true')
     parser.add_argument('--use_cuda', action='store_true')
@@ -66,15 +66,9 @@ def main():
     input_dims = 1
     output_dims = 1
     hids = args.net_shape
-    net = models.mlp(input_dims,
-                     models.GaussianDN.n_params(output_dims),
-                     hids,
-                     dropout_layers=[
-                         models.CDropout(args.drop_rate * torch.ones(hid))
-                         for hid in hids
-                     ],
-                     nonlin=models.activations.hhSinLU)
-    model = models.GaussianDN(net)
+    model = models.density_network_mlp(input_dims, output_dims,
+                                       models.GaussianDN, hids, args.drop_rate,
+                                       models.activations.hhSinLU)
     model.set_scaling(X, Y)
     print(model)
 
@@ -90,15 +84,10 @@ def main():
 
     # mixture of gaussians model
     nc = args.n_components
-    net = models.mlp(input_dims,
-                     models.GaussianMDN.n_params(output_dims, nc),
-                     hids,
-                     dropout_layers=[
-                         models.CDropout(args.drop_rate * torch.ones(hid))
-                         for hid in hids
-                     ],
-                     nonlin=models.activations.hhSinLU)
-    mmodel = models.GaussianMDN(net, nc)
+    mmodel = models.mixture_density_network_mlp(input_dims, output_dims, nc,
+                                                models.GaussianMDN, hids,
+                                                args.drop_rate,
+                                                models.activations.hhSinLU)
     mmodel.set_scaling(X, Y)
     print(mmodel)
 

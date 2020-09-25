@@ -1,6 +1,10 @@
 import torch
 import numpy as np
 
+from . import core
+from . import modules
+from . import activations
+
 
 class ConditionalDensityModel(torch.nn.Module):
     '''
@@ -27,7 +31,7 @@ class ConditionalDensityModel(torch.nn.Module):
 
     @staticmethod
     def n_params(D):
-        raise NotImplementedError
+        return D
 
     def get_dist(self, params, temperature):
         ones = torch.ones_like(params)
@@ -217,20 +221,66 @@ class GaussianMDN(ConditionalDensityModel):
 
 
 class SoftmaxDN(ConditionalDensityModel):
-    def __init__(self, model, n_components):
+    def __init__(self, model):
         super().__init__(model)
 
     def get_dist(self, params, temperature):
         D = int(params.shape[-1])
-        dist = torch.distributions.OneHotCategorical(logits=params)
+        dist = torch.distributions.OneHotCategorical(logits=params /
+                                                     temperature)
         return dist, dict(logits=params)
 
 
 class RelaxedSoftmaxDN(ConditionalDensityModel):
-    def __init__(self, model, n_components):
+    def __init__(self, model):
         super().__init__(model)
 
     def get_dist(self, params, temperature):
         D = int(params.shape[-1])
-        dist = torch.distributions.RelaxedOneHotCategorical(logits=params)
+        dist = torch.distributions.RelaxedOneHotCategorical(1.0,
+                                                            logits=params /
+                                                            temperature)
         return dist, dict(logits=params)
+
+
+def density_network_mlp(inputs,
+                        outputs,
+                        density_model=GaussianDN,
+                        hids=[200, 200],
+                        drop_rate=0.1,
+                        activation=activations.hhSinLU):
+    '''
+        Utility method to build single gaussian model
+    '''
+    net = core.mlp(inputs,
+                   density_model.n_params(outputs),
+                   hids,
+                   dropout_layers=[
+                       modules.CDropout(drop_rate * torch.ones(hid))
+                       for hid in hids
+                   ],
+                   nonlin=activation)
+    model = density_model(net)
+    return model
+
+
+def mixture_density_network_mlp(inputs,
+                                outputs,
+                                nc=5,
+                                density_model=GaussianMDN,
+                                hids=[200, 200],
+                                drop_rate=0.1,
+                                activation=activations.hhSinLU):
+    '''
+        Utility method to build single gaussian model
+    '''
+    net = core.mlp(inputs,
+                   density_model.n_params(outputs, nc),
+                   hids,
+                   dropout_layers=[
+                       modules.CDropout(drop_rate * torch.ones(hid))
+                       for hid in hids
+                   ],
+                   nonlin=activation)
+    model = density_model(net, nc)
+    return model
