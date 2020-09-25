@@ -133,16 +133,17 @@ class Cartpole(GymEnv):
         self.action_space = spaces.Box(-high, high, dtype=np.float32)
 
         high = np.array([
-            np.finfo(np.float32).max,
-            np.finfo(np.float32).max,
+            4,
+            10,
             2 * np.pi,
-            np.finfo(np.float32).max,
+            10,
         ])
         if self.angle_dims is not None:
-            low = angles.to_complex(torch.tensor(-high),
-                                    self.angle_dims).numpy()
-            high = angles.to_complex(torch.tensor(high),
-                                     self.angle_dims).numpy()
+            rnd = torch.distributions.Uniform(torch.tensor(-high),
+                                              torch.tensor(high)).sample(
+                                                  [1000])
+            low = angles.to_complex(rnd, self.angle_dims).min(0)[0].numpy()
+            high = angles.to_complex(rnd, self.angle_dims).max(env)[0].numpy()
         else:
             low = -high
         self.observation_space = spaces.Box(low=low,
