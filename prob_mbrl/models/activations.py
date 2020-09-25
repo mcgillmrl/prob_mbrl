@@ -23,3 +23,14 @@ class SinLU(torch.nn.Module):
 
     def forward(self, x):
         return self.thr(x) - self.thr(-x).sin()
+
+
+class hhSinLU(torch.nn.Module):
+    def forward(self, x):
+        d = int(0.5 * x.shape[-1])
+        signs = 2 * torch.arange(2) - 1
+        signs = signs.repeat(int(x.shape[-1] / 2 + 1))[:x.shape[-1]]
+        x = x * signs
+        return torch.cat(
+            [x[..., :d].sin(),
+             torch.nn.functional.relu(x[..., d:])], -1)

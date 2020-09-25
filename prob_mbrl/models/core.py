@@ -33,6 +33,8 @@ def mlp(input_dims,
     dims = [input_dims] + hidden_dims
     if not isinstance(dropout_layers, Iterable):
         dropout_layers = [copy.deepcopy(dropout_layers)] * (len(hidden_dims))
+    if not isinstance(nonlin, Iterable):
+        nonlin = [nonlin] * (len(hidden_dims))
 
     modules = OrderedDict()
     # add input dropout
@@ -55,8 +57,8 @@ def mlp(input_dims,
         if layer_norm:
             modules['ln%d' % i] = torch.nn.LayerNorm(dout)
         # activation
-        if callable(nonlin):
-            modules['nonlin%d' % i] = nonlin()
+        if callable(nonlin[i]):
+            modules['nonlin%d' % i] = nonlin[i]()
         # dropout (regularizes next layer)
         if drop_i is not None:
             modules['drop%d' % i] = drop_i
@@ -187,11 +189,11 @@ class Regressor(torch.nn.Module):
 
 class Policy(torch.nn.Module):
     def __init__(
-            self,
-            model,
-            maxU=1.0,
-            minU=None,
-            angle_dims=[],
+        self,
+        model,
+        maxU=1.0,
+        minU=None,
+        angle_dims=[],
     ):
         super(Policy, self).__init__()
         self.model = model

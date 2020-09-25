@@ -21,7 +21,9 @@ class BDropout(StochasticModule):
         self.name = name
         self.register_buffer('regularizer_scale',
                              torch.tensor(0.5 * regularizer_scale))
-        self.register_buffer('rate', torch.tensor(rate))
+        self.register_buffer(
+            'rate',
+            rate if isinstance(rate, torch.Tensor) else torch.tensor(rate))
         self.register_buffer('p', 1 - self.rate)
         self.register_buffer('noise', torch.bernoulli(self.p))
 
@@ -198,6 +200,7 @@ class BSequential(nn.modules.Sequential):
 
     def __init__(self, *args):
         super(BSequential, self).__init__(*args)
+        self.modules_to_regularize = []
 
     def resample(self, seed=None):
         i = 0
@@ -229,28 +232,45 @@ class BSequential(nn.modules.Sequential):
         return input
 
     def regularization_loss(self):
-        modules = list(self._modules.values())
+        names, modules = [list(x) for x in zip(*self._modules.items())]
         reg_loss = 0
-        for i, module in enumerate(modules):
+        if len(self.modules_to_regularize) > 0:
+            # use memoized list of parameters instead of doing the recursive
+            # calls in the loop below
+            for d in self.modules_to_regularize:
+                module = d['module']
+                if 'weight' in d:
+                    reg_loss += module.weights_regularizer(d['weight'])
+                if 'bias' in d:
+                    reg_loss += module.biases_regularizer(d['bias'])
+            return reg_loss
+
+        for i, (name, module) in enumerate(zip(names, modules)):
             if hasattr(module, 'weights_regularizer'):
                 # find first subsequent module, from current,output_samples
                 # with a weight attribute
+                to_regularize = {'module': module}
                 for next_module in modules[i:]:
                     if isinstance(next_module, SpectralNorm):
                         next_module = next_module.module
                     if isinstance(next_module, nn.Linear)\
                             or isinstance(next_module,
                                           nn.modules.conv._ConvNd):
+                        to_regularize['weight'] = next_module.weight
                         reg_loss += module.weights_regularizer(
                             next_module.weight)
                         if hasattr(next_module, 'bias')\
                                 and next_module.bias is not None\
                                 and hasattr(module, 'biases_regularizer'):
+                            to_regularize['bias'] = next_module.bias
                             reg_loss += module.biases_regularizer(
                                 next_module.bias)
                         break
+                if len(to_regularize) > 1:
+                    self.modules_to_regularize.append(to_regularize)
             elif hasattr(module, 'regularization_loss'):
                 reg_loss += module.regularization_loss()
+                self.modules_to_regularize.extend(module.modules_to_regularize)
         return reg_loss
 
 

@@ -6,6 +6,7 @@ import warnings
 from collections import Iterable
 from itertools import chain
 from matplotlib import pyplot as plt
+from tqdm.auto import tqdm
 
 from .rollout import rollout
 
@@ -219,3 +220,45 @@ def load_checkpoint(path, dyn, pol, exp, val=None):
         exp.load(exp_path)
     except Exception:
         warnings.warn(msg.format(exp_path))
+
+
+def train_model(model,
+                X,
+                Y,
+                n_iters=10000,
+                opt=None,
+                resample=True,
+                batch_size=100):
+    # setup default optimizer if none available
+    if opt is None:
+        opt = torch.optim.Adam(model.parameters(), lr=1e-3)
+
+    # setup dataloader
+    dataloader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(
+        X, Y),
+                                             batch_size=batch_size,
+                                             shuffle=True,
+                                             num_workers=0)
+    data_iter = iter(dataloader)
+
+    def next_batch():
+        # get next batch
+        try:
+            x, y = next(data_iter)
+        except:
+            data_iter = iter(dataloader)
+            x, y = next(data_iter)
+        return x, y
+
+    # train model
+    pbar = tqdm(range(n_iters))
+    for i in pbar:
+        opt.zero_grad()
+        x, y = next_batch()
+        log_pygx, dist_params = model(x, y_true=y, resample=resample)
+        ll = log_pygx.mean()
+        reg = model.regularization_loss()
+        loss = -ll + reg / X.shape[0]
+        loss.backward()
+        opt.step()
+        pbar.set_description(f'data logL: {ll.detach().cpu().numpy()}')
