@@ -66,9 +66,11 @@ def main():
     input_dims = 1
     output_dims = 1
     hids = args.net_shape
-    model = models.density_network_mlp(input_dims, output_dims,
-                                       models.GaussianDN, hids, args.drop_rate,
-                                       models.activations.hhSinLU)
+
+    model = models.density_network_mlp(
+        input_dims, output_dims, models.GaussianDN, hids,
+        [models.CDropout(args.drop_rate * torch.ones(hid))
+         for hid in hids], models.activations.hhSinLU)
     model.set_scaling(X, Y)
     print(model)
 
@@ -84,10 +86,10 @@ def main():
 
     # mixture of gaussians model
     nc = args.n_components
-    mmodel = models.mixture_density_network_mlp(input_dims, output_dims, nc,
-                                                models.GaussianMDN, hids,
-                                                args.drop_rate,
-                                                models.activations.hhSinLU)
+    mmodel = models.mixture_density_network_mlp(
+        input_dims, output_dims, nc, models.GaussianMDN, hids,
+        [models.CDropout(args.drop_rate * torch.ones(hid))
+         for hid in hids], models.activations.hhSinLU)
     mmodel.set_scaling(X, Y)
     print(mmodel)
 
@@ -124,7 +126,7 @@ def main():
     plt.scatter(X.cpu(), Y.cpu())
     yy = f(xx[:, 0]).cpu()
     plt.plot(xx[:, 0], yy, linestyle='--')
-    plt.ylim(1.5 * yy.min(), 1.5 * yy.max())
+    plt.ylim(1.75 * yy.min(), 1.75 * yy.max())
 
     # plot results for gaussian mixture model
     xx = torch.linspace(-2.5 + X.min(), 2.5 + X.max(), 500)
@@ -159,7 +161,7 @@ def main():
     plt.scatter(X.cpu(), Y.cpu())
     yy = f(xx[:, 0]).cpu()
     plt.plot(xx[:, 0], yy, linestyle='--')
-    ret = plt.ylim(1.5 * yy.min(), 1.5 * yy.max())
+    ret = plt.ylim(1.75 * yy.min(), 1.75 * yy.max())
 
     plt.show()
 

@@ -228,7 +228,10 @@ def train_model(model,
                 n_iters=10000,
                 opt=None,
                 resample=True,
+                loss=None,
                 batch_size=100):
+    import gc
+    model.train()
     # setup default optimizer if none available
     if opt is None:
         opt = torch.optim.Adam(model.parameters(), lr=1e-3)
@@ -262,3 +265,7 @@ def train_model(model,
         loss.backward()
         opt.step()
         pbar.set_description(f'data logL: {ll.detach().cpu().numpy()}')
+        if i % 500 == 0:
+            gc.collect()
+            torch.cuda.empty_cache()
+    model.eval()

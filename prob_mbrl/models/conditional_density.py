@@ -1,9 +1,91 @@
 import torch
 import numpy as np
+import numbers
 
 from . import core
 from . import modules
 from . import activations
+
+
+class ScalingTransform(torch.distributions.transforms.Transform):
+    r"""
+    Transform with a scaling transform :math:`y = \text{loc} + \text{L}x`.
+    where L is a 
+
+    Args:
+        loc (Tensor or float): Location parameter.
+        L (Tensor): Lower triangular matrix corresponding to the cholesky factorization.
+        event_dim (int): Optional size of `event_shape`. This should be zero
+            for univariate random variables, 1 for distributions over vectors,
+            2 for distributions over matrices, etc.
+    """
+    domain = torch.distributions.transforms.constraints.real
+    codomain = torch.distributions.transforms.constraints.real
+    bijective = True
+
+    def __init__(self, loc, L, event_dim=0, cache_size=0):
+        super(ScalingTransform, self).__init__(cache_size=cache_size)
+        self.loc = loc
+        self.L = L
+        self.event_dim = event_dim
+
+    def with_cache(self, cache_size=1):
+        if self._cache_size == cache_size:
+            return self
+        return ScalingTransform(self.loc,
+                                self.L,
+                                self.event_dim,
+                                cache_size=cache_size)
+
+    def __eq__(self, other):
+        if not isinstance(other, ScalingTransform):
+            return False
+
+        if isinstance(self.loc, numbers.Number) and isinstance(
+                other.loc, numbers.Number):
+            if self.loc != other.loc:
+                return False
+        else:
+            if not (self.loc == other.loc).all().item():
+                return False
+
+        if isinstance(self.L, numbers.Number) and isinstance(
+                other.L, numbers.Number):
+            if self.L != other.L:
+                return False
+        else:
+            if not (self.L == other.L).all().item():
+                return False
+        return True
+
+    @property
+    def sign(self):
+        if isinstance(self.L, numbers.Number):
+            return 1 if self.L > 0 else -1 if self.L < 0 else 0
+        return self.L.diagonal().sign()
+
+    def _call(self, x):
+        return x.matmul(self.L) + self.loc
+
+    def _inverse(self, y):
+        return torch.triangular_solve((y - self.loc)[..., :, None],
+                                      self.L,
+                                      upper=False,
+                                      transpose=True)[0].squeeze(-1)
+
+    def log_abs_det_jacobian(self, x, y):
+        shape = x.shape
+        L = self.L
+        if isinstance(L, numbers.Number):
+            result = torch.full_like(x, math.log(abs(L)))
+        else:
+            result = torch.abs(L.diagonal(0, -2, -1).prod(-1,
+                                                          keepdim=True)).log()
+        if self.event_dim:
+            result_size = result.size()[:-self.event_dim] + (-1, )
+            result = result.view(result_size).sum(-1)
+            shape = shape[:-self.event_dim]
+        return result.expand(shape)
 
 
 class ConditionalDensityModel(torch.nn.Module):
@@ -22,12 +104,12 @@ class ConditionalDensityModel(torch.nn.Module):
     def __init__(self, base_model):
         super().__init__()
         self.base_model = base_model
-        self.X_mean = torch.tensor([[0.]])
-        self.LX = torch.tensor([[1.]])
-        self.iLX = torch.tensor([[1.]])
-        self.Y_mean = torch.tensor([[0.]])
-        self.LY = torch.tensor([[1.]])
-        self.iLY = torch.tensor([[1.]])
+        self.X_mean = None
+        self.LX = None
+        self.iLX = None
+        self.Y_mean = None
+        self.LY = None
+        self.iLY = None
 
     @staticmethod
     def n_params(D):
@@ -44,24 +126,29 @@ class ConditionalDensityModel(torch.nn.Module):
             self.base_model.resample()
 
     def set_scaling(self, X, Y):
+        self.set_input_scaling(X)
+        self.set_output_scaling(Y)
+
+    def set_input_scaling(self, X):
         X_mean = X.mean(0, keepdim=True)
         X_delta = X - X_mean + 1e-4 * X.std(0)
         LX = 2 * (X_delta.T.mm(X_delta) / (X.shape[0] - 1)).cholesky()
         iLX = LX.inverse()
+        self.X_mean, self.LX, self.iLX = X_mean, LX, iLX
+
+    def set_output_scaling(self, Y):
         Y_mean = Y.mean(0, keepdim=True)
         Y_delta = Y - Y_mean + 1e-4 * Y.std(0)
         LY = 2 * (Y_delta.T.mm(Y_delta) / (Y.shape[0] - 1)).cholesky()
         iLY = LY.inverse()
-        self.X_mean, self.LX, self.iLX = X_mean, LX, iLX
         self.Y_mean, self.LY, self.iLY = Y_mean, LY, iLY
 
     def rescale(self, x, X_mean, iLX):
-        transform = torch.distributions.transforms.AffineTransform(
-            -X_mean.mm(iLX), iLX)
+        transform = ScalingTransform(-X_mean.mm(iLX), iLX)
         return transform(x)
 
     def rescale_dist(self, dist, Y_mean, LY):
-        transform = torch.distributions.transforms.AffineTransform(Y_mean, LY)
+        transform = ScalingTransform(Y_mean, LY)
         return torch.distributions.TransformedDistribution(dist, transform)
 
     def rescale_params(self, dist_params, Y_mean, iLY, LY):
@@ -83,12 +170,15 @@ class ConditionalDensityModel(torch.nn.Module):
                 temperature=1.0,
                 seed=None,
                 n_samples=torch.Size([]),
+                rsample=True,
                 **kwargs):
         if seed is not None:
             np.random.seed(seed)
             torch.manual_seed(seed)
-        # rescale inputs
-        x = self.rescale(x, self.X_mean, self.iLX)
+
+        if self.X_mean is not None and self.iLX is not None:
+            # rescale inputs
+            x = self.rescale(x, self.X_mean, self.iLX)
 
         # forward through mlp
         params = self.base_model(x, **kwargs)
@@ -96,16 +186,20 @@ class ConditionalDensityModel(torch.nn.Module):
         # get output distribution
         dist, dist_params = self.get_dist(params, temperature)
 
-        # rescale output distribution
-        dist = self.rescale_dist(dist, self.Y_mean, self.LY)
-        dist_params = self.rescale_params(dist_params, self.Y_mean, self.iLY,
-                                          self.LY)
+        if self.Y_mean is not None and self.iLY is not None:
+            # rescale output distribution
+            dist = self.rescale_dist(dist, self.Y_mean, self.LY)
+            dist_params = self.rescale_params(dist_params, self.Y_mean,
+                                              self.iLY, self.LY)
 
         # compute outputs
         if y_true is not None:
             return dist.log_prob(y_true), dist_params
         else:
-            samples = dist.rsample(n_samples)
+            if rsample:
+                samples = dist.rsample(n_samples)
+            else:
+                samples = dist.sample(n_samples)
             log_probs = dist.log_prob(samples)
             return samples, log_probs, dist_params
 
@@ -224,6 +318,9 @@ class SoftmaxDN(ConditionalDensityModel):
     def __init__(self, model):
         super().__init__(model)
 
+    def rescale_dist(self, dist, Y_mean, LY):
+        return dist
+
     def get_dist(self, params, temperature):
         D = int(params.shape[-1])
         dist = torch.distributions.OneHotCategorical(logits=params /
@@ -231,15 +328,14 @@ class SoftmaxDN(ConditionalDensityModel):
         return dist, dict(logits=params)
 
 
-class RelaxedSoftmaxDN(ConditionalDensityModel):
+class RelaxedSoftmaxDN(SoftmaxDN):
     def __init__(self, model):
         super().__init__(model)
 
     def get_dist(self, params, temperature):
         D = int(params.shape[-1])
-        dist = torch.distributions.RelaxedOneHotCategorical(1.0,
-                                                            logits=params /
-                                                            temperature)
+        dist = torch.distributions.RelaxedOneHotCategorical(
+            torch.tensor([0.1]), logits=params / temperature)
         return dist, dict(logits=params)
 
 
@@ -247,18 +343,18 @@ def density_network_mlp(inputs,
                         outputs,
                         density_model=GaussianDN,
                         hids=[200, 200],
-                        drop_rate=0.1,
-                        activation=activations.hhSinLU):
+                        dropout=0.1,
+                        activation=torch.nn.ReLU):
     '''
         Utility method to build single gaussian model
     '''
+    if isinstance(dropout, numbers.Number):
+        dropout = [modules.CDropout(dropout * torch.ones(hid)) for hid in hids]
+
     net = core.mlp(inputs,
                    density_model.n_params(outputs),
                    hids,
-                   dropout_layers=[
-                       modules.CDropout(drop_rate * torch.ones(hid))
-                       for hid in hids
-                   ],
+                   dropout_layers=dropout,
                    nonlin=activation)
     model = density_model(net)
     return model
@@ -269,18 +365,18 @@ def mixture_density_network_mlp(inputs,
                                 nc=5,
                                 density_model=GaussianMDN,
                                 hids=[200, 200],
-                                drop_rate=0.1,
-                                activation=activations.hhSinLU):
+                                dropout=0.1,
+                                activation=torch.nn.ReLU):
     '''
         Utility method to build single gaussian model
     '''
+    if isinstance(dropout, numbers.Number):
+        dropout = [modules.CDropout(dropout * torch.ones(hid)) for hid in hids]
+
     net = core.mlp(inputs,
                    density_model.n_params(outputs, nc),
                    hids,
-                   dropout_layers=[
-                       modules.CDropout(drop_rate * torch.ones(hid))
-                       for hid in hids
-                   ],
+                   dropout_layers=dropout,
                    nonlin=activation)
     model = density_model(net, nc)
     return model
