@@ -338,6 +338,15 @@ class RelaxedSoftmaxDN(SoftmaxDN):
             torch.tensor([0.1]), logits=params / temperature)
         return dist, dict(logits=params)
 
+    def forward(self, *args, **kwargs):
+        y_true = kwargs.get('y_true', None)
+        if y_true is not None and torch.any(y_true == 0):
+            y_true = y_true + 1e-3
+            y_true = y_true / y_true.sum(-1)
+            kwargs['y_true'] = y_true
+
+        return super().forward(*args, **kwargs)
+
 
 def density_network_mlp(inputs,
                         outputs,
