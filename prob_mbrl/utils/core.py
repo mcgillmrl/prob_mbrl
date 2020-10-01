@@ -258,8 +258,8 @@ def train_model(model,
     for i in pbar:
         opt.zero_grad()
         x, y = next_batch()
-        log_pygx, dist_params = model(x, y_true=y, resample=resample)
-        ll = log_pygx.mean()
+        pygx, dist_params = model(x, resample=resample)
+        ll = pygx.log_prob(y).mean()
         reg = model.regularization_loss()
         loss = -ll + reg / X.shape[0]
         loss.backward()

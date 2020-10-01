@@ -108,15 +108,15 @@ def main():
     xx = xx[:, None, None].repeat(1, 100, 1)
     with torch.no_grad():
         model.resample()
-        yy_pred = model(xx, temperature=1.0, resample=False)
-        noiseless_yy_pred = model(xx, temperature=1.0e-9, resample=False)
+        py, py_params = model(xx, temperature=1.0, resample=False)
+
     xx = xx.cpu()
     colors = np.array(list(plt.cm.rainbow_r(np.linspace(0, 1, 255))))
-
     fig = plt.figure(figsize=(16, 9))
-    means = yy_pred[2]['mu'].squeeze(-1).cpu()
-    stds = yy_pred[2]['sqrtSigma'].diagonal(0, -1, -2).squeeze(-1).cpu()
-    plt.plot(xx.squeeze(-1), means, c=colors[0], alpha=0.1)
+    fig.canvas.set_window_title('Single Gaussian output density')
+    means = py_params['mu'].squeeze(-1).cpu()
+    stds = py_params['sqrtSigma'].diagonal(0, -1, -2).squeeze(-1).cpu()
+    ret = plt.plot(xx.squeeze(-1), means, c=colors[0], alpha=0.1)
     for i in range(means.shape[1]):
         plt.fill_between(xx[:, i].squeeze(-1),
                          means[:, i] - stds[:, i],
@@ -126,43 +126,48 @@ def main():
     plt.scatter(X.cpu(), Y.cpu())
     yy = f(xx[:, 0]).cpu()
     plt.plot(xx[:, 0], yy, linestyle='--')
-    plt.ylim(1.75 * yy.min(), 1.75 * yy.max())
+    ret = plt.ylim(2.5 * yy.min(), 1.5 * yy.max())
 
     # plot results for gaussian mixture model
     xx = torch.linspace(-2.5 + X.min(), 2.5 + X.max(), 500)
     xx = xx[:, None, None].repeat(1, 100, 1)
     with torch.no_grad():
         mmodel.resample()
-        yy_pred = mmodel(xx, temperature=1.0, resample=False)
-        noiseless_yy_pred = mmodel(xx, temperature=1.0e-9, resample=False)
+        py, py_params = mmodel(xx, temperature=1.0, resample=False)
+        noiseless_py, noiseless_py_params = mmodel(xx,
+                                                   temperature=1.0e-9,
+                                                   resample=False)
     xx = xx.cpu()
-
     fig = plt.figure(figsize=(16, 9))
+    fig.canvas.set_window_title('Mixture of Gaussians output density')
     ax = fig.gca()
     colors = np.array(list(plt.cm.rainbow_r(np.linspace(0, 1, 255))))
-    means = yy_pred[2]['mu'].squeeze(-1).cpu()
-    stds = yy_pred[2]['sqrtSigma'].diagonal(0, -1, -2).squeeze(-1).cpu()
-    logit_pi = yy_pred[2]['logit_pi'].squeeze(-1).cpu()
+    logit_pi = py_params['logit_pi'].squeeze(-1).cpu()
+    noiseless_logit_pi = noiseless_py_params['logit_pi'].squeeze(-1).cpu()
 
-    # plot samples from the mixture
+    samples = py.sample([10])
+    noiseless_samples = noiseless_py.sample([1])
+
     pi = torch.log_softmax(logit_pi, -1).exp()
     comp = pi.max(-1, keepdim=True)[1]
-    ret = plt.scatter(xx.squeeze(-1),
-                      yy_pred[0].squeeze(-1).cpu(),
-                      c=0.5 * colors[0:1],
+    ret = plt.scatter(xx.repeat(samples.shape[0], 1, 1).squeeze(-1),
+                      samples.view(-1, samples.shape[-2]).cpu(),
+                      c=logit_pi.argmax(-1).repeat(samples.shape[0], 1),
                       alpha=0.1,
-                      s=1)
-    ret = plt.scatter(xx.squeeze(-1),
-                      noiseless_yy_pred[0].squeeze(-1).cpu(),
-                      c=colors[0:1],
-                      alpha=0.1,
-                      s=1)
+                      s=1,
+                      cmap='copper')
+    ret = plt.scatter(xx.repeat(noiseless_samples.shape[0], 1, 1).squeeze(-1),
+                      noiseless_samples.view(
+                          -1, noiseless_samples.shape[-2]).cpu(),
+                      c=noiseless_logit_pi.argmax(-1),
+                      alpha=0.5,
+                      s=1,
+                      cmap='copper')
 
     plt.scatter(X.cpu(), Y.cpu())
     yy = f(xx[:, 0]).cpu()
     plt.plot(xx[:, 0], yy, linestyle='--')
-    ret = plt.ylim(1.75 * yy.min(), 1.75 * yy.max())
-
+    ret = plt.ylim(2.75 * yy.min(), 2.75 * yy.max())
     plt.show()
 
 

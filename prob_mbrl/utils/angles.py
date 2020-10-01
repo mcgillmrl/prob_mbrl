@@ -31,8 +31,8 @@ def build_odims_(x, dims):
     if not isinstance(dims, torch.Tensor):
         dims = torch.tensor(dims).to(getattr(x, 'device', 'cpu'))
         odims = torch.arange(0, x.shape[-1]).long().to(dims.device)
-    odims = torch.bitwise_not(torch.eq(dims,
-                                       odims[:, None])).prod(1).nonzero()[:, 0]
+    odims = torch.bitwise_not(torch.eq(
+        dims, odims[:, None])).prod(1).nonzero(as_tuple=False)[:, 0]
     return odims.detach(), dims
 
 

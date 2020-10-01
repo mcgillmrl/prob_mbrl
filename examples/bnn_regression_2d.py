@@ -108,73 +108,87 @@ def main():
                       batch_size=args.N_batch)
     print(mmodel)
 
-    # # plot results for single gaussian model
+    # plot results for single gaussian model
     xx = torch.stack(
-        torch.meshgrid(torch.linspace(-2.5, 2.5, 50),
-                       torch.linspace(-2.5, 2.5, 50))).T.reshape(-1, 2)
+        torch.meshgrid(torch.linspace(-2.75, 2.75, 50),
+                       torch.linspace(-2.75, 2.75, 50))).T.reshape(-1, 2)
     yy = f2d(xx)
-    xx_ = xx[:, None].repeat(1, 100, 1)
+    xx_ = xx[:, None].repeat(1, 10, 1)
     with torch.no_grad():
         model.resample()
-        yy_pred = model(xx_, temperature=1.0, resample=False)
-        noiseless_yy_pred = model(xx_, temperature=1.0e-9, resample=False)
+        py, py_params = model(xx_, temperature=1.0, resample=False)
+        noiseless_py, noiseless_py_params = model(xx_,
+                                                  temperature=1.0e-9,
+                                                  resample=False)
+
     xx_, yy_ = xx.cpu(), yy.cpu()
     colors = np.array(list(plt.cm.rainbow_r(np.linspace(0, 1, 255))))
-
     fig = plt.figure(figsize=(16, 9))
+    fig.canvas.set_window_title('Single Gaussian output density')
+    samples = py.sample()
+    noiseless_samples = noiseless_py.sample()
 
     for i in range(yy.shape[-1]):
         ax1 = fig.add_subplot(int(f'{yy.shape[-1]}1{i+1}'), projection='3d')
-        mu = yy_pred[0][:, :, i].mean(1).cpu()
-        std = yy_pred[0][:, :, i].std(1).cpu()
         ax1.scatter(xx_[:, 0], xx_[:, 1], yy_[:, i], s=2, alpha=0.25)
         ax1.scatter(X_[:, 0], X_[:, 1], Y_[:, i])
-        ax1.scatter(xx_[:, 0], xx_[:, 1], mu, s=2, c=colors[0:1], alpha=0.25)
-        ax1.scatter(xx_[:, 0],
-                    xx_[:, 1],
-                    mu + 3 * std,
+        ax1.scatter(xx_[:, 0:1].repeat(1, samples.shape[1]).view(-1),
+                    xx_[:, 1:2].repeat(1, samples.shape[1]).view(-1),
+                    noiseless_samples[..., i].view(-1),
                     s=2,
-                    c=0.5 * colors[0:1],
-                    alpha=0.25)
-        ax1.scatter(xx_[:, 0],
-                    xx_[:, 1],
-                    mu - 3 * std,
+                    c=colors[0:1],
+                    alpha=0.05)
+        ax1.scatter(xx_[:, 0:1].repeat(1, samples.shape[1]),
+                    xx_[:, 1:2].repeat(1, samples.shape[1]),
+                    samples[..., i].view(-1),
                     s=2,
-                    c=0.5 * colors[0:1],
-                    alpha=0.25)
+                    c=colors[0:1],
+                    alpha=0.05)
+        ax1.set_zlim3d(yy[:, i].min(), yy[:, i].max())
 
+    # plot results for gaussian mixture model
     xx = torch.stack(
-        torch.meshgrid(torch.linspace(-2.5, 2.5, 50),
-                       torch.linspace(-2.5, 2.5, 50))).T.reshape(-1, 2)
+        torch.meshgrid(torch.linspace(-2.75, 2.75, 50),
+                       torch.linspace(-2.75, 2.75, 50))).T.reshape(-1, 2)
     yy = f2d(xx)
-    xx_ = xx[:, None].repeat(1, 100, 1)
+    xx_ = xx[:, None].repeat(1, 10, 1)
     with torch.no_grad():
         mmodel.resample()
-        yy_pred = mmodel(xx_, temperature=1.0, resample=False)
-        noiseless_yy_pred = mmodel(xx_, temperature=1.0e-9, resample=False)
+        py, py_params = mmodel(xx_, temperature=1.0, resample=False)
+        noiseless_py, noiseless_py_params = mmodel(xx_,
+                                                   temperature=1.0e-9,
+                                                   resample=False)
+
     xx_, yy_ = xx.cpu(), yy.cpu()
     colors = np.array(list(plt.cm.rainbow_r(np.linspace(0, 1, 255))))
-
+    samples = py.sample()
+    noiseless_samples = py.sample()
     fig = plt.figure(figsize=(16, 9))
+    fig.canvas.set_window_title('Mixture of Gaussians output density')
+    samples = py.sample()
+    noiseless_samples = noiseless_py.sample()
+    logit_pi = py_params['logit_pi'].squeeze(-1).cpu()
+    noiseless_logit_pi = noiseless_py_params['logit_pi'].squeeze(-1).cpu()
+
     for i in range(yy.shape[-1]):
         ax1 = fig.add_subplot(int(f'{yy.shape[-1]}1{i+1}'), projection='3d')
-        mu = yy_pred[0][:, :, i].mean(1).cpu()
-        std = yy_pred[0][:, :, i].std(1).cpu()
+        mu = samples[:, :, i].mean(1).cpu()
+        std = samples[:, :, i].std(1).cpu()
         ax1.scatter(xx_[:, 0], xx_[:, 1], yy_[:, i], s=2, alpha=0.25)
         ax1.scatter(X_[:, 0], X_[:, 1], Y_[:, i])
-        ax1.scatter(xx_[:, 0], xx_[:, 1], mu, s=2, c=colors[0:1], alpha=0.25)
-        ax1.scatter(xx_[:, 0],
-                    xx_[:, 1],
-                    mu + 3 * std,
-                    s=2,
-                    c=0.5 * colors[0:1],
-                    alpha=0.25)
-        ax1.scatter(xx_[:, 0],
-                    xx_[:, 1],
-                    mu - 3 * std,
-                    s=2,
-                    c=0.5 * colors[0:1],
-                    alpha=0.25)
+        ax1.scatter(xx_[:, 0:1].repeat(1, samples.shape[1]).view(-1),
+                    xx_[:, 1:2].repeat(1, samples.shape[1]).view(-1),
+                    noiseless_samples[..., i].view(-1),
+                    s=20,
+                    c=noiseless_logit_pi.argmax(-1).view(-1),
+                    alpha=0.01)
+        ax1.scatter(xx_[:, 0:1].repeat(1, samples.shape[1]).view(-1),
+                    xx_[:, 1:2].repeat(1, samples.shape[1]).view(-1),
+                    samples[..., i].view(-1),
+                    s=20,
+                    c=logit_pi.argmax(-1).view(-1),
+                    alpha=0.1)
+        ax1.set_zlim3d(yy[:, i].min(), yy[:, i].max())
 
     plt.show()
 

@@ -164,14 +164,7 @@ class ConditionalDensityModel(torch.nn.Module):
     def regularization_loss(self):
         return self.base_model.regularization_loss()
 
-    def forward(self,
-                x,
-                y_true=None,
-                temperature=1.0,
-                seed=None,
-                n_samples=torch.Size([]),
-                rsample=True,
-                **kwargs):
+    def forward(self, x, temperature=1.0, seed=None, **kwargs):
         if seed is not None:
             np.random.seed(seed)
             torch.manual_seed(seed)
@@ -192,16 +185,7 @@ class ConditionalDensityModel(torch.nn.Module):
             dist_params = self.rescale_params(dist_params, self.Y_mean,
                                               self.iLY, self.LY)
 
-        # compute outputs
-        if y_true is not None:
-            return dist.log_prob(y_true), dist_params
-        else:
-            if rsample:
-                samples = dist.rsample(n_samples)
-            else:
-                samples = dist.sample(n_samples)
-            log_probs = dist.log_prob(samples)
-            return samples, log_probs, dist_params
+        return dist, dist_params
 
 
 class GaussianDN(ConditionalDensityModel):
@@ -338,15 +322,6 @@ class RelaxedSoftmaxDN(SoftmaxDN):
             torch.tensor([0.1]), logits=params / temperature)
         return dist, dict(logits=params)
 
-    def forward(self, *args, **kwargs):
-        y_true = kwargs.get('y_true', None)
-        if y_true is not None and torch.any(y_true == 0):
-            y_true = y_true + 1e-3
-            y_true = y_true / y_true.sum(-1)
-            kwargs['y_true'] = y_true
-
-        return super().forward(*args, **kwargs)
-
 
 def density_network_mlp(inputs,
                         outputs,
@@ -377,7 +352,7 @@ def mixture_density_network_mlp(inputs,
                                 dropout=0.1,
                                 activation=torch.nn.ReLU):
     '''
-        Utility method to build single gaussian model
+        Utility method to build a mixture of gaussians model
     '''
     if isinstance(dropout, numbers.Number):
         dropout = [modules.CDropout(dropout * torch.ones(hid)) for hid in hids]

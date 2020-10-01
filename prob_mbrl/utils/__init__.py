@@ -5,6 +5,7 @@ from .train_regressor import train_regressor, iterate_minibatches
 from .rollout import rollout, rollout_with_values, rollout_with_Qvalues
 from .experience_dataset import ExperienceDataset, SumTree
 from .apply_controller import apply_controller
+from .experiments import get_argument_parser
 from . import (classproperty, angles)
 
 __all__ = [
@@ -13,5 +14,5 @@ __all__ = [
     "load_csv", "tile", "load_checkpoint", "classproperty", "angles",
     "ExperienceDataset", "SumTree", "apply_controller", "custom_pbar",
     "train_regressor", "rollout", "rollout_with_values",
-    "rollout_with_Qvalues", "train_model"
+    "rollout_with_Qvalues", "train_model", "get_argument_parser"
 ]
