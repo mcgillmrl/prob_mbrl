@@ -14,6 +14,6 @@ setup(
     packages=find_packages(),
     install_requires=[
         'torch>=1.0', 'gym', 'numpy', 'scipy', 'matplotlib', 'dill',
-        'tensorboardX', 'box2d-py', 'mujoco_py', 'tqdm'
+        'tensorboardX', 'box2d-py', 'tqdm'
     ],
 )

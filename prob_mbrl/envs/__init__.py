@@ -4,13 +4,15 @@ from prob_mbrl.envs.pendulum import Pendulum
 from prob_mbrl.envs.cartpole import Cartpole
 from prob_mbrl.envs.cart_acrobot import CartAcrobot
 from prob_mbrl.envs.double_cartpole import DoubleCartpole
-try:
-    from prob_mbrl.envs import mj_cartpole
-except:
-    pass
 
 __all__ = [
     "LunarLander", "lunar_lander", "Rendezvous", "rendezvous", "Pendulum",
     "pendulum", "Cartpole", "cartpole", "DoubleCartpole", "double_cartpole",
-    "CartAcrobot", "mj_cartpole"
+    "CartAcrobot"
 ]
+
+try:
+    from prob_mbrl.envs import mj_cartpole
+    __all__ += ['mj_cartpole']
+except:
+    pass
