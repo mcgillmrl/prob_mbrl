@@ -1,3 +1,5 @@
+import contextlib
+import joblib
 import numpy as np
 import torch
 import os
@@ -5,7 +7,9 @@ import warnings
 
 from collections import Iterable
 from itertools import chain
+from joblib import Parallel, delayed
 from matplotlib import pyplot as plt
+from time import sleep
 from tqdm.auto import tqdm
 
 from .rollout import rollout
@@ -172,8 +176,8 @@ def threshold_linear(x, y0, yend, x0, xend):
 
 def sin_squashing_fn(x):
     '''
-        Periodic squashing function from PILCO. 
-        Bounds the output to be between -1 and 1 
+        Periodic squashing function from PILCO.
+        Bounds the output to be between -1 and 1
     '''
     xx = torch.stack([x, 3 * x]).sin()
     scale = torch.tensor([9.0, 1.0], device=x.device,
@@ -239,16 +243,16 @@ def train_model(model,
     # setup dataloader
     dataloader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(
         X, Y),
-                                             batch_size=batch_size,
-                                             shuffle=True,
-                                             num_workers=0)
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=0)
     data_iter = iter(dataloader)
 
     def next_batch():
         # get next batch
         try:
             x, y = next(data_iter)
-        except:
+        except BaseException:
             data_iter = iter(dataloader)
             x, y = next(data_iter)
         return x, y
@@ -269,3 +273,23 @@ def train_model(model,
             gc.collect()
             torch.cuda.empty_cache()
     model.eval()
+
+
+@contextlib.contextmanager
+def tqdm_joblib(tqdm_object):
+    """Context manager to patch joblib to report into tqdm progress bar given as argument"""
+    class TqdmBatchCompletionCallback(joblib.parallel.BatchCompletionCallBack):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+
+        def __call__(self, *args, **kwargs):
+            tqdm_object.update(n=self.batch_size)
+            return super().__call__(*args, **kwargs)
+
+    old_batch_callback = joblib.parallel.BatchCompletionCallBack
+    joblib.parallel.BatchCompletionCallBack = TqdmBatchCompletionCallback
+    try:
+        yield tqdm_object
+    finally:
+        joblib.parallel.BatchCompletionCallBack = old_batch_callback
+        tqdm_object.close()

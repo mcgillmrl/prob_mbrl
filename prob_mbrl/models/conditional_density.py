@@ -10,7 +10,7 @@ from . import activations
 class ScalingTransform(torch.distributions.transforms.Transform):
     r"""
     Transform with a scaling transform :math:`y = \text{loc} + \text{L}x`.
-    where L is a 
+    where L is a
 
     Args:
         loc (Tensor or float): Location parameter.
@@ -101,6 +101,7 @@ class ConditionalDensityModel(torch.nn.Module):
                                      instantiated with the parameters predicted
                                      by the base model
     '''
+
     def __init__(self, base_model):
         super().__init__()
         self.base_model = base_model
@@ -185,7 +186,7 @@ class ConditionalDensityModel(torch.nn.Module):
             dist_params = self.rescale_params(dist_params, self.Y_mean,
                                               self.iLY, self.LY)
 
-        return dist, dist_params
+        return dict(dist=dist, params=dist_params)
 
 
 class GaussianDN(ConditionalDensityModel):
@@ -206,7 +207,7 @@ class GaussianDN(ConditionalDensityModel):
         u, v, d = params[..., D:params.shape[-1]].view(-1, 3, D,
                                                        1).transpose(0, 1)
         sqrtSigma = u.matmul(v.transpose(
-            -1, -2)).tril(-1) + torch.eye(D) * d.exp()
+            -1, -2)).tril(-1) + torch.eye(D, dtype=params.dtype, device=params.device) * d.exp()
         sqrtSigma = temperature * sqrtSigma
         shp = list(params.shape[0:-1])
         sqrtSigma = sqrtSigma.view(shp + [D, D])
@@ -222,6 +223,7 @@ class RelaxedMixtureSameFamily(torch.distributions.MixtureSameFamily):
         Mixture distribution with reparametrized sampling for
         pathwise derivatives
     '''
+
     def __init__(self,
                  mixture_distribution,
                  component_distribution,
@@ -264,9 +266,10 @@ class RelaxedMixtureSameFamily(torch.distributions.MixtureSameFamily):
 class GaussianMDN(ConditionalDensityModel):
     '''
         Gaussian Mixture Density Network where
-        each component is a multivariate normal with a 
+        each component is a multivariate normal with a
         full covariance matrix
     '''
+
     def __init__(self, model, n_components):
         super().__init__(model)
         self.nc = n_components
@@ -285,7 +288,7 @@ class GaussianMDN(ConditionalDensityModel):
         u, v, d = params[..., D * nc:4 * D * nc].view(-1, 3, nc, D,
                                                       1).transpose(0, 1)
         sqrtSigma = u.matmul(v.transpose(
-            -1, -2)).tril(-1) + torch.eye(D) * d.exp()
+            -1, -2)).tril(-1) + torch.eye(D, dtype=params.dtype, device=params.device) * d.exp()
         sqrtSigma = temperature * sqrtSigma
         sqrtSigma = sqrtSigma.view(shp + [nc, D, D])
         logit_pi = params[..., 4 * D *
@@ -328,10 +331,13 @@ def density_network_mlp(inputs,
                         density_model=GaussianDN,
                         hids=[200, 200],
                         dropout=0.1,
+                        input_dropout=None,
                         activation=torch.nn.ReLU):
     '''
         Utility method to build single gaussian model
     '''
+    if isinstance(input_dropout, numbers.Number):
+        input_dropout = modules.CDropout(input_dropout * torch.ones(inputs))
     if isinstance(dropout, numbers.Number):
         dropout = [modules.CDropout(dropout * torch.ones(hid)) for hid in hids]
 
@@ -339,6 +345,7 @@ def density_network_mlp(inputs,
                    density_model.n_params(outputs),
                    hids,
                    dropout_layers=dropout,
+                   input_dropout=input_dropout,
                    nonlin=activation)
     model = density_model(net)
     return model
@@ -350,10 +357,13 @@ def mixture_density_network_mlp(inputs,
                                 density_model=GaussianMDN,
                                 hids=[200, 200],
                                 dropout=0.1,
+                                input_dropout=None,
                                 activation=torch.nn.ReLU):
     '''
         Utility method to build a mixture of gaussians model
     '''
+    if isinstance(input_dropout, numbers.Number):
+        input_dropout = modules.CDropout(input_dropout * torch.ones(inputs))
     if isinstance(dropout, numbers.Number):
         dropout = [modules.CDropout(dropout * torch.ones(hid)) for hid in hids]
 
@@ -361,6 +371,7 @@ def mixture_density_network_mlp(inputs,
                    density_model.n_params(outputs, nc),
                    hids,
                    dropout_layers=dropout,
+                   input_dropout=input_dropout,
                    nonlin=activation)
     model = density_model(net, nc)
     return model
