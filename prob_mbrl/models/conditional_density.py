@@ -165,7 +165,7 @@ class ConditionalDensityModel(torch.nn.Module):
     def regularization_loss(self):
         return self.base_model.regularization_loss()
 
-    def forward(self, x, temperature=1.0, seed=None, **kwargs):
+    def forward(self, x, temperature=1.0, seed=None, return_params=False, **kwargs):
         if seed is not None:
             np.random.seed(seed)
             torch.manual_seed(seed)
@@ -180,13 +180,17 @@ class ConditionalDensityModel(torch.nn.Module):
         # get output distribution
         dist, dist_params = self.get_dist(params, temperature)
 
+        dist_params['raw_params_vector'] = params
+
         if self.Y_mean is not None and self.iLY is not None:
             # rescale output distribution
             dist = self.rescale_dist(dist, self.Y_mean, self.LY)
             dist_params = self.rescale_params(dist_params, self.Y_mean,
                                               self.iLY, self.LY)
-
-        return dict(dist=dist, params=dist_params)
+        if return_params:
+            return dist, dist_params
+        else:
+            return dist
 
 
 class GaussianDN(ConditionalDensityModel):
@@ -204,17 +208,17 @@ class GaussianDN(ConditionalDensityModel):
 
         # extract params from mlp output
         mu = params[..., 0:D]
-        u, v, d = params[..., D:params.shape[-1]].view(-1, 3, D,
-                                                       1).transpose(0, 1)
+        u, v, d = params[..., D:params.shape[-1]
+                         ].view(-1, 3, D, 1).transpose(0, 1)
         sqrtSigma = u.matmul(v.transpose(
-            -1, -2)).tril(-1) + torch.eye(D, dtype=params.dtype, device=params.device) * d.exp()
+            -1, -2)).tril(-1) + torch.eye(D, dtype=params.dtype, device=params.device) * d.clamp(-10, 10).exp()
         sqrtSigma = temperature * sqrtSigma
         shp = list(params.shape[0:-1])
         sqrtSigma = sqrtSigma.view(shp + [D, D])
 
         # prepare output distribution
-        dist = torch.distributions.MultivariateNormal(mu, scale_tril=sqrtSigma)
-
+        dist = torch.distributions.MultivariateNormal(
+            mu, scale_tril=sqrtSigma)
         return dist, dict(mu=mu, sqrtSigma=sqrtSigma)
 
 
@@ -288,7 +292,7 @@ class GaussianMDN(ConditionalDensityModel):
         u, v, d = params[..., D * nc:4 * D * nc].view(-1, 3, nc, D,
                                                       1).transpose(0, 1)
         sqrtSigma = u.matmul(v.transpose(
-            -1, -2)).tril(-1) + torch.eye(D, dtype=params.dtype, device=params.device) * d.exp()
+            -1, -2)).tril(-1) + torch.eye(D, dtype=params.dtype, device=params.device) * d.clamp(-10, 10).exp()
         sqrtSigma = temperature * sqrtSigma
         sqrtSigma = sqrtSigma.view(shp + [nc, D, D])
         logit_pi = params[..., 4 * D *
@@ -302,16 +306,21 @@ class GaussianMDN(ConditionalDensityModel):
 
 
 class SoftmaxDN(ConditionalDensityModel):
-    def __init__(self, model):
+    def __init__(self, model, one_hot=True):
         super().__init__(model)
+        self.one_hot = one_hot
 
     def rescale_dist(self, dist, Y_mean, LY):
         return dist
 
     def get_dist(self, params, temperature):
         D = int(params.shape[-1])
-        dist = torch.distributions.OneHotCategorical(logits=params /
-                                                     temperature)
+        if self.one_hot:
+            dist = torch.distributions.OneHotCategorical(logits=params /
+                                                         temperature)
+        else:
+            dist = torch.distributions.Categorical(logits=params /
+                                                   temperature)
         return dist, dict(logits=params)
 
 
