@@ -17,7 +17,7 @@ from tqdm.auto import tqdm
 torch.set_flush_denormal(True)
 
 
-def rollout(env, pol, seed=None, worker_id=0, render=False, stop_on_done=False, max_steps=1000):
+def rollout(env, pol, seed=None, worker_id=0, render=False, stop_on_done=True, max_steps=1000):
     data = []
 
     # initalize the random seed differently for each worker
@@ -69,7 +69,7 @@ def rollout(env, pol, seed=None, worker_id=0, render=False, stop_on_done=False, 
     return pd.DataFrame(data)
 
 
-def parallel_rollout(env, pol, seed=None, n_trajs=1, n_jobs=8):
+def parallel_rollout(env, pol, seed=None, n_trajs=1, n_jobs=8, stop_on_done=True):
     if n_trajs == 1:
         data = [rollout(env, pol, seed)]
     else:
@@ -78,7 +78,7 @@ def parallel_rollout(env, pol, seed=None, n_trajs=1, n_jobs=8):
             seed = 0
         with prob_mbrl.utils.tqdm_joblib(tqdm(desc=f"rollout {env.__repr__()}", total=n_trajs)):
             data = joblib.Parallel(n_jobs=n_jobs)(
-                [joblib.delayed(rollout)(env, rnd, seed=seed, worker_id=i)
+                [joblib.delayed(rollout)(env, rnd, seed=seed, worker_id=i, stop_on_done=stop_on_done)
                  for i in range(n_trajs)])
     for i, d in enumerate(data):
         d['trajectory_id'] = i
@@ -250,7 +250,7 @@ class NextStateRewardDoneOutputDistribution(torch.nn.Module):
         self.pr = prob_mbrl.models.density_network_mlp(
             embedding_size + self.ps.n_params(D), 1, hids=[], input_dropout=0.1)
         self.pdone = prob_mbrl.models.density_network_mlp(
-            embedding_size + self.ps.n_params(D+1), 2, density_model=prob_mbrl.models.SoftmaxDN,
+            embedding_size + self.ps.n_params(D + 1), 2, density_model=prob_mbrl.models.SoftmaxDN,
             hids=[], input_dropout=0.1)
         self.pdone.one_hot = False
 
@@ -274,9 +274,9 @@ class Policy(torch.nn.Module):
         self.register_buffer('limits', limits)
         self.base_policy = base_policy
 
-        # initialize policy  parameters to very small numbers
-        for p in self.parameters():
-            p.data *= 1e-3
+        # # initialize policy  parameters to very small numbers
+        # for p in self.parameters():
+        #     p.data *= 1e-3
 
     def regularization_loss(self):
         return self.base_policy.regularization_loss()
@@ -285,7 +285,7 @@ class Policy(torch.nn.Module):
         # base policy must return a torch.distributions.Distribution object
         p_act = self.base_policy(s, *kwargs)
         transforms = [torch.distributions.SigmoidTransform(), torch.distributions.AffineTransform(
-            loc=self.limits[0], scale=self.limits[1]-self.limits[0])]
+            loc=self.limits[0], scale=self.limits[1] - self.limits[0])]
         p_act = torch.distributions.TransformedDistribution(p_act, transforms)
         return p_act
 
@@ -305,7 +305,7 @@ def nf_model(num_layers=2, hids=100, dims=2, context_dims=2, batch_norm=False, a
         base_dist = nflows.distributions.StandardNormal(shape=[dims])
     else:
         base_dist = nflows.distributions.ConditionalDiagonalNormal(
-            shape=[dims], context_encoder=torch.nn.Linear(context_dims, 2*dims))
+            shape=[dims], context_encoder=torch.nn.Linear(context_dims, 2 * dims))
 
     transforms = []
 
@@ -349,14 +349,14 @@ def nf_model(num_layers=2, hids=100, dims=2, context_dims=2, batch_norm=False, a
 def polar_coords_noise(x):
     directions = torch.randn_like(x)
     norms = ((directions**2).sum(-1)[:, None])**0.5
-    directions = directions/norms
+    directions = directions / norms
     magnitudes = torch.randn_like(x)
-    samples = directions*magnitudes
+    samples = directions * magnitudes
     return samples
 
 
 class DynCollatePadRandomInputDrop(torch.nn.Module):
-    def __init__(self, p_full_obs=0.5, p_full_act=1.0,  p_drop_obs=0.5, p_drop_act=0.0):
+    def __init__(self, p_full_obs=0.5, p_full_act=1.0, p_drop_obs=0.5, p_drop_act=0.0):
         super().__init__()
         self.p_full_obs = p_full_obs
         self.p_full_act = p_full_act
@@ -408,7 +408,8 @@ def collate_initial_state(batch):
     return dict(obs0=obs0)
 
 
-def minibatch_supervised_train(model, opt, dataset, loss_cb, n_iters=1000, batch_size=100, num_workers=0, use_cuda=True, collate_fn=None):
+def minibatch_supervised_train(model, opt, dataset, loss_cb, n_iters=1000, batch_size=100,
+                               num_workers=0, use_cuda=True, collate_fn=None):
     dataloader = FastDataLoader(
         dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True,
         drop_last=batch_size < len(dataset), collate_fn=collate_fn)
@@ -457,7 +458,7 @@ def dyn_loss_cb(batch, model, use_cuda=False):
     log_p_done = p_done.log_prob(done)
 
     log_p_traj = log_p_next_obs.sum(0) + log_p_rew.sum(0) + log_p_done.sum(0)
-    return -log_p_traj.mean() + 1e-3*dyn.output_distribution.regularization_loss()
+    return -log_p_traj.mean() + 1e-3 * dyn.output_distribution.regularization_loss()
 
 
 def p0_loss_cb(batch, model, use_cuda=False):
@@ -465,28 +466,30 @@ def p0_loss_cb(batch, model, use_cuda=False):
     if use_cuda:
         obs0 = obs0.cuda()
     # sample noise regularizer magnitude
-    h = 2*torch.rand_like(obs0[..., 0:1])
+    h = 2 * torch.rand_like(obs0[..., 0:1])
     # perturb samples with noise proportional to the std of the data
-    obs0_noisy = obs0 + h*obs0.std(0, keepdim=True)
+    obs0_noisy = obs0 + h * obs0.std(0, keepdim=True)
     # compute log prob of corrupted samples
     log_p0 = model.log_prob(obs0_noisy, context=h)
     return -log_p0.mean()
 
 
-def train_policy_on_rollouts(pol, dyn, p0, opt, pol_reg, n_iters=1000, batch_size=100, use_cuda=True):
-    if use_cuda == True:
+def train_policy_on_rollouts(pol, dyn, p0, planning_horizon, opt, pol_reg, n_iters=1000, batch_size=100, use_cuda=True):
+    if use_cuda:
         p0.cuda()
         pol.cuda()
         dyn.cuda()
     p0.eval()
     pol.train()
-    dyn.eval()
+    dyn.train()
     pbar = tqdm(range(max(1, n_iters)))
     pbar_iter = iter(pbar)
     i = next(pbar_iter)
+    seed = torch.seed()
     while i < n_iters:
         # initialize state distribution
         # sample initial states
+        torch.manual_seed(seed)
         s0 = p0.sample(batch_size)
         s = s0.detach()
         while s.shape[0] < planning_horizon:
@@ -509,7 +512,7 @@ def train_policy_on_rollouts(pol, dyn, p0, opt, pol_reg, n_iters=1000, batch_siz
 
             # compute loss and update policy
             E_r = p_rew.rsample().sum(0).mean()
-            loss = -E_r + pol_reg*pol.regularization_loss()
+            loss = -E_r + pol_reg * pol.regularization_loss()
             loss.backward(inputs=list(pol.parameters()))
             opt.step()
             s = torch.cat([s0, next_s]).detach()
@@ -542,7 +545,7 @@ if __name__ == '__main__':
     pol_batch_size = 100
     pol_iters = 1000
     pol_reg = 1e-3
-    num_workers = 0
+    num_workers = 8
     embedding_size = 128
     planning_horizon = 50
     use_cuda = True
@@ -561,41 +564,53 @@ if __name__ == '__main__':
             embedding_size, D, hids=[], input_dropout=0.1),
         transformer_model(embedding_size, 4, 4),
         embedding_size)
-    dynopt = torch.optim.Adam(dyn.parameters(), lr=1e-3)
+    dynopt = torch.optim.Adam(dyn.parameters(), lr=1e-4)
 
     # initial state model
     p0 = nf_model(dims=D, context_dims=1)
-    p0opt = torch.optim.Adam(p0.parameters(), lr=1e-3)
+    p0opt = torch.optim.Adam(p0.parameters(), lr=1e-4)
 
     # policy
     limits = torch.tensor([env.action_space.low, env.action_space.high])
     squash_transforms = [torch.distributions.SigmoidTransform(),
-                         torch.distributions.AffineTransform(loc=limits[0], scale=limits[1]-limits[0])]
-    pol = Policy(prob_mbrl.models.density_network_mlp(D, U),  limits)
-    polopt = torch.optim.Adam(pol.parameters(), lr=1e-3)
+                         torch.distributions.AffineTransform(loc=limits[0], scale=limits[1] - limits[0])]
+    pol = Policy(prob_mbrl.models.density_network_mlp(D, U), limits)
+    polopt = torch.optim.Adam(pol.parameters(), lr=1e-4)
 
     # collect dataset of 10 trajectories
-    data = parallel_rollout(env, rnd, n_trajs=n_initial_trajs)
+    data = parallel_rollout(env, rnd, n_trajs=n_initial_trajs, stop_on_done=True)
+    traj_lens = data.groupby('trajectory_id').done.count()
+    print("Traj lens:", traj_lens.min(), traj_lens.mean(), traj_lens.max())
     dataset = ExperienceDataset(data, planning_horizon, min_traj_len=2)
 
-    for i in range(10):
+    for i in range(1000):
         # show what the current policy can do
         rollout(env, pol, seed=env.seed(None)[0], render=True)
+
+        # collect new data
+        data = parallel_rollout(env, pol, n_trajs=trajs_per_iter)
+        dataset.append(data)
+        dataset.data.to_csv("trajs.csv")
+        traj_lens = data.groupby('trajectory_id').done.count()
+        print("Traj lens:", traj_lens.min(), traj_lens.mean(), traj_lens.max())
 
         # train initial state model
         minibatch_supervised_train(p0, p0opt, dataset, p0_loss_cb, n_iters=p0_iters,
                                    batch_size=p0_batch_size, num_workers=num_workers,
                                    collate_fn=collate_initial_state)
 
+        torch.save(p0.state_dict(), "p0.pth")
+
         # train dynamics model
         minibatch_supervised_train(dyn, dynopt, dataset, dyn_loss_cb, n_iters=dyn_iters,
                                    batch_size=dyn_batch_size, num_workers=num_workers,
                                    collate_fn=DynCollatePadRandomInputDrop())
-
+        print(dyn)
+        torch.save(dyn.state_dict(), "dyn.pth")
         # train policy on dynamics model rollouts
-        train_policy_on_rollouts(pol, dyn, p0, polopt, pol_reg,
+        max_traj_len = dataset.traj_lens.max()
+        train_policy_on_rollouts(pol, dyn, p0, min(max_traj_len, planning_horizon), polopt, pol_reg,
                                  pol_iters, pol_batch_size, use_cuda)
 
-        # collect new data
-        data = parallel_rollout(env, pol, n_trajs=trajs_per_iter)
-        dataset.append(data)
+        torch.save(pol.state_dict(), "policy.pth")
+        print(pol)
